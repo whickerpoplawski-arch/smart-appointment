@@ -24,7 +24,6 @@ class MessageBuilder:
     def __init__(self):
         self.missing_info_prompts = {
             "patient_name": "请问患者的姓名是？",
-            "specialty": "请问要挂哪个科室？比如内科、外科或儿科。",
             "visit_type": "请问是初诊、复诊还是咨询？",
             "start_time": "请问希望把就诊安排在什么时间？",
             "duration": "请问就诊预计需要多长时间？未说明时我会按就诊类型设置默认时长。",
@@ -33,7 +32,9 @@ class MessageBuilder:
 
     @classmethod
     def question_for(cls, field: str) -> str:
-        """缺槽追问的唯一句子。"""
+        """缺槽追问的唯一句子。科室走完整菜单，不按症状推荐。"""
+        if field == "specialty":
+            return cls.specialty_menu_question()
         return cls().missing_info_prompts[field]
 
     @classmethod
@@ -55,10 +56,16 @@ class MessageBuilder:
 
     @staticmethod
     def specialty_menu_question() -> str:
-        """只列出科室名，不按症状推荐科室。"""
+        """列出全部科室，并说明不会按症状判断或推荐。"""
+        from config.constants import SPECIALTY_CHOICE_LIMIT
         from services.appointment_service import DEPARTMENT_CHOICES
+
         names = "、".join(DEPARTMENT_CHOICES)
-        return f"请先选择科室：{names}。"
+        return (
+            f"{SPECIALTY_CHOICE_LIMIT}"
+            f"可选科室：{names}。"
+            "请您自己选定一个，我不会按症状推荐科室。"
+        )
 
     def create_appointment_success_message(self, doctor: Dict[str, Any],
                                          appointment_history: Dict[str, Any]) -> str:
@@ -181,9 +188,7 @@ class MessageBuilder:
         specialty = appointment_history.get('specialty', '该科室')
 
         if status == 'needs_specialty':
-            return (
-                f"\n机器人：{self.specialty_menu_question()}我不会根据症状分诊。\n"
-            )
+            return f"\n机器人：{self.specialty_menu_question()}\n"
         if status == 'doctor_not_found':
             name = result.get('requested_doctor') or appointment_history.get('doctor_name')
             return (

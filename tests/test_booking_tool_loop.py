@@ -13,6 +13,8 @@ from agents.appointment.booking_tool_loop import (
     prepare_find_arguments,
     run_with_fallback,
 )
+from agents.appointment.message_builder import MessageBuilder
+from services.appointment_service import DEPARTMENT_CHOICES
 from agents.appointment.doctor_finder import DoctorFinder
 from agents.appointment_agent import MAX_TURNS, AppointmentAgent
 from agents.session_registry import SessionRegistry
@@ -122,7 +124,8 @@ class TestToolLoopFallback:
         tokens = await collect(run_with_fallback(loop, legacy, "我是张三", {}))
 
         assert seen == []
-        assert "请问要挂哪个科室？比如内科、外科或儿科。" in "".join(tokens)
+        assert "耳鼻喉科" in "".join(tokens)
+        assert "比如内科、外科或儿科" not in "".join(tokens)
         assert "请问姓名" not in "".join(tokens)
 
     @pytest.mark.asyncio
@@ -218,8 +221,44 @@ class TestToolLoopFallback:
 
         assert "请先选择科室" in tokens
         assert "内科" in tokens
+        assert "我不能判断症状或开具用药" in tokens
+        assert "耳鼻喉科" in tokens
+        assert "我不会按症状推荐科室" in tokens
+        assert "建议挂" not in tokens
         assert searched == []
         assert policy_next_action(loop.last_observation) == "ask_user"
+
+
+REFUSAL_CLAUSE = "我不能判断症状或开具用药。请先选择科室，我可以帮您预约医生档期。"
+
+
+class TestSpecialtyAsk:
+    def test_question_reuses_the_refusal_clause_and_lists_every_department(self):
+        from agents.consultant.consultation_processor import medical_advice_refusal
+
+        ask = MessageBuilder.question_for("specialty")
+
+        assert REFUSAL_CLAUSE in medical_advice_refusal("这是什么病")
+        assert REFUSAL_CLAUSE in ask
+        assert ask.index(REFUSAL_CLAUSE) < ask.index("可选科室")
+        for name in DEPARTMENT_CHOICES:
+            assert name in ask
+        assert "比如内科、外科或儿科" not in ask
+        assert "建议挂" not in ask
+        assert "诊断" not in ask
+
+    @pytest.mark.asyncio
+    async def test_empty_ask_uses_the_full_menu_instead_of_three_examples(self):
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action("ask_user", message="")]),
+            StubFinder(),
+        )
+
+        tokens = "".join(await collect(loop.run("我咳嗽两天，有点头疼", {})))
+
+        assert tokens == f"[REPLY][预约助手]{MessageBuilder.question_for('specialty')}"
+        assert "耳鼻喉科" in tokens
+        assert "比如内科、外科或儿科" not in tokens
 
 
 class TestSlotPersistence:
@@ -563,6 +602,59 @@ class TestFinishGate:
         assert "时间" in tokens
         assert "缺少患者姓名" not in tokens
 
+    @pytest.mark.asyncio
+    async def test_finish_without_a_successful_find_searches_then_offers_slots(self):
+        finder = StubFinder(result={
+            "status": "unavailable",
+            "requested_doctor": {"id": 1, "name": "陈安"},
+            "alternatives": [],
+        })
+        offered = [
+            {"start_time": "2026-11-20 17:00", "duration_minutes": 30, "label": "2026-11-20 17:00"},
+            {"start_time": "2026-11-23 09:00", "duration_minutes": 30, "label": "2026-11-23 09:00"},
+        ]
+        called = []
+
+        async def on_finish(observation, history):
+            called.append(observation)
+            doctor = (observation or {}).get("doctor")
+            if not doctor:
+                return "[REPLY][预约助手]还不能结束，我还没有查到可约的医生。"
+            return "[REPLY][预约助手]预约成功"
+
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action("finish", arguments={
+                "specialty": "内科",
+                "start_time": "2026-11-20 15:00",
+                "duration_minutes": 30,
+                "doctor_name": "陈安",
+            })]),
+            finder,
+            on_finish=on_finish,
+            slot_search=lambda history: offered,
+        )
+        history = {
+            "patient_name": "评测赵六",
+            "specialty": "内科",
+            "visit_type": "初诊",
+            "start_time": "2026-11-20 15:00",
+            "doctor_name": "陈安",
+        }
+
+        tokens = "".join(await collect(loop.run(
+            "我是评测赵六，想挂内科初诊，时间2026-11-20 15:00，门诊，指定医生陈安。",
+            history,
+        )))
+
+        assert finder.calls, "finish 没有查过医生时必须先 find"
+        assert finder.calls[0]["doctor_name"] == "陈安"
+        assert finder.calls[0]["start_time_str"] == "2026-11-20 15:00"
+        assert called == []
+        assert "还不能结束" not in tokens
+        assert "可以改到" in tokens
+        assert "2026-11-20 17:00" in tokens
+        assert "2026-11-20 15:00" not in tokens.split("可以改到", 1)[-1]
+
 
 class TestSingleAskCopy:
     """空 ask_user 与多槽原文都只问最缺的一槽，且不使用禁句。"""
@@ -576,7 +668,9 @@ class TestSingleAskCopy:
 
         tokens = "".join(await collect(loop.run("我想预约", {})))
 
-        assert tokens == "[REPLY][预约助手]请问要挂哪个科室？比如内科、外科或儿科。"
+        assert "耳鼻喉科" in tokens
+        assert "我不能判断症状或开具用药" in tokens
+        assert "比如内科、外科或儿科" not in tokens
         assert "请补充就诊预约需要的信息" not in tokens
         assert "姓名" not in tokens
 
@@ -591,7 +685,9 @@ class TestSingleAskCopy:
 
         tokens = "".join(await collect(loop.run("我想预约", {})))
 
-        assert tokens == "[REPLY][预约助手]请问要挂哪个科室？比如内科、外科或儿科。"
+        assert "耳鼻喉科" in tokens
+        assert "比如内科、外科或儿科" not in tokens
+        assert "请问患者的姓名是" not in tokens
 
     @pytest.mark.asyncio
     async def test_empty_ask_with_specialty_asks_the_next_slot(self):
@@ -604,3 +700,61 @@ class TestSingleAskCopy:
 
         assert tokens == "[REPLY][预约助手]请问患者的姓名是？"
         assert "请补充就诊预约需要的信息" not in tokens
+
+    @pytest.mark.asyncio
+    async def test_hollow_specialty_ask_is_replaced_with_the_menu(self):
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action(
+                "ask_user", message="请问您想挂哪个科室？"
+            )]),
+            StubFinder(),
+        )
+
+        tokens = "".join(await collect(loop.run("我咳嗽两天，有点头疼", {})))
+
+        assert "请问您想挂哪个科室" not in tokens
+        assert tokens == f"[REPLY][预约助手]{MessageBuilder.specialty_menu_question()}"
+        for name in DEPARTMENT_CHOICES:
+            assert name in tokens
+
+    @pytest.mark.asyncio
+    async def test_specialty_mention_without_the_menu_is_rewritten(self):
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action(
+                "ask_user", message="请问您想挂哪个科室？"
+            )]),
+            StubFinder(),
+        )
+        history = {
+            "patient_name": "评测李四",
+            "specialty": "内科",
+            "visit_type": "初诊",
+            "start_time": "2026-11-22 11:00",
+        }
+
+        tokens = "".join(await collect(loop.run("就这个科室", history)))
+
+        assert "请问您想挂哪个科室" not in tokens
+        assert "耳鼻喉科" in tokens
+        assert "我不能判断症状或开具用药" in tokens
+
+    @pytest.mark.asyncio
+    async def test_confirmation_that_mentions_specialty_is_kept(self):
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action(
+                "ask_user",
+                message="请确认是否按已记下的姓名、科室、就诊类型和时间预约。",
+            )]),
+            StubFinder(),
+        )
+        history = {
+            "patient_name": "评测李四",
+            "specialty": "内科",
+            "visit_type": "初诊",
+            "start_time": "2026-11-22 11:00",
+        }
+
+        tokens = "".join(await collect(loop.run("是", history)))
+
+        assert "请确认是否按已记下的姓名、科室、就诊类型和时间预约。" in tokens
+        assert "耳鼻喉科" not in tokens

@@ -107,6 +107,75 @@ def question_blocking_finish(history: Dict[str, Any]) -> Optional[str]:
     return MessageBuilder.question_for(field)
 
 
+def observation_can_finish(observation: Optional[Dict[str, Any]]) -> bool:
+    """只有查到 available 且带医生时，才允许 finish 落库。"""
+    if not observation or observation.get("status") != "available":
+        return False
+    doctor = observation.get("doctor") or {}
+    return bool(doctor.get("id") or doctor.get("name"))
+
+
+def message_has_department_menu(message: str) -> bool:
+    """问句里要出现全部科室名，三科举例不算菜单。"""
+    from services.appointment_service import DEPARTMENT_CHOICES
+
+    text = message or ""
+    return all(name in text for name in DEPARTMENT_CHOICES)
+
+
+def coerce_ask_message(message: Optional[str], history: Optional[Dict[str, Any]]) -> str:
+    """科室还空，或原文提到科室却没有菜单时，改成固定菜单。"""
+    history = history or {}
+    text = (message or "").strip()
+    asks_for_specialty = "科室" in text and "确认" not in text and not message_has_department_menu(text)
+    if _is_blank(history.get("specialty")) or asks_for_specialty:
+        return MessageBuilder.specialty_menu_question()
+    missing = MessageBuilder.first_missing_slot(history)
+    if missing is not None:
+        return MessageBuilder.question_for(missing)
+    return text or MessageBuilder.ask_one(history)
+
+
+def find_arguments_from_history(history: Dict[str, Any], raw: Any = None) -> Dict[str, Any]:
+    """用本轮槽位和 finish 上的 arguments 拼出一次 find_doctor。"""
+    raw = raw if isinstance(raw, dict) else {}
+
+    def pick(key: str):
+        if key in raw and not _is_blank(raw.get(key)):
+            return raw.get(key)
+        value = history.get(key)
+        return None if _is_blank(value) else value
+
+    duration = raw.get("duration_minutes")
+    if not isinstance(duration, int):
+        duration = AppointmentProcessor.resolve_duration(
+            history.get("visit_type"), history.get("duration")
+        )
+    return {
+        "specialty": pick("specialty"),
+        "start_time": pick("start_time"),
+        "duration_minutes": duration if isinstance(duration, int) else None,
+        "doctor_name": pick("doctor_name"),
+    }
+
+
+def absorb_finish_arguments(history: Dict[str, Any], action: Dict[str, Any]) -> None:
+    """finish 若把时间或医生放在 arguments 里，先写入槽位再决定查不查。"""
+    raw = action.get("arguments")
+    if not isinstance(raw, dict):
+        return
+    duration = raw.get("duration_minutes")
+    merge_booking_slots(history, {
+        "patient_name": raw.get("patient_name"),
+        "specialty": raw.get("specialty"),
+        "visit_type": raw.get("visit_type"),
+        "channel": raw.get("channel"),
+        "start_time": raw.get("start_time"),
+        "doctor_name": raw.get("doctor_name"),
+        "duration": f"{duration}分钟" if isinstance(duration, int) else None,
+    })
+
+
 class ToolLoopFallback(Exception):
     """连续非法动作或参数，调用方应回退到现有 run_stream。"""
 
@@ -236,15 +305,23 @@ class BookingToolLoop:
             merge_booking_slots(history, action.get("slots"))
             fill_default_duration(history)
             if name == "ask_user":
-                missing = MessageBuilder.first_missing_slot(history)
-                if missing is not None:
-                    yield reply_for_ask(MessageBuilder.question_for(missing))
-                else:
-                    yield reply_for_ask(action.get("message"), history)
+                yield reply_for_ask(coerce_ask_message(action.get("message"), history))
                 return
 
             if name == "finish":
-                yield await self._finish_or_ask(history, self.last_observation)
+                absorb_finish_arguments(history, action)
+                if observation_can_finish(self.last_observation):
+                    yield await self._finish_or_ask(history, self.last_observation)
+                    return
+                question = question_blocking_finish(history)
+                if question:
+                    yield reply_for_ask(question)
+                    return
+                async for token in self._run_find(
+                    find_arguments_from_history(history, action.get("arguments")),
+                    history,
+                ):
+                    yield token
                 return
 
             arguments = prepare_find_arguments(history, action.get("arguments"))
@@ -312,7 +389,7 @@ class BookingToolLoop:
             self.last_observation = observation
             history["pending_alternative_slots"] = options
             history["awaiting_slot_choice"] = bool(options)
-            yield reply_for_slots(options)
+            yield reply_for_slots(options, history.get("start_time"))
             return
         if next_action == "finish" or (next_action == "search_alternative_slots" and not allow_replan and observation.get("status") == "available"):
             yield await self._finish_or_ask(history, observation)
@@ -348,10 +425,31 @@ class BookingToolLoop:
         merge_booking_slots(history, data)
         fill_default_duration(history)
 
+    async def _run_find(self, arguments: Dict[str, Any], history: Dict[str, Any]) -> AsyncGenerator[str, None]:
+        """槽位已齐但还没有 available 时，替模型执行一次 find，再走原策略。"""
+        arguments = prepare_find_arguments(history, arguments)
+        if not _schema_keys_aligned() or _validate_arguments(arguments):
+            yield reply_for_ask(MessageBuilder.ask_one(history))
+            return
+        observation = find_doctor(
+            arguments,
+            self.finder,
+            default_duration=default_duration_for_find(history, arguments),
+        )
+        self.last_observation = observation
+        if observation.get("status") not in TOOL_STATUSES or observation.get("status") == "invalid_arguments":
+            yield reply_for_ask(MessageBuilder.ask_one(history))
+            return
+        remember_find_arguments(history, arguments)
+        async for token in self._apply_policy(observation, history, allow_replan=True):
+            yield token
+
     async def _finish_or_ask(self, history: Dict[str, Any], observation: Optional[Dict[str, Any]]) -> str:
         question = question_blocking_finish(history)
         if question:
             return reply_for_ask(question)
+        if not observation_can_finish(observation):
+            return reply_for_ask(MessageBuilder.ask_one(history))
         return await self._finish(history, observation)
 
     async def _finish(self, history: Dict[str, Any], observation: Optional[Dict[str, Any]]) -> str:
@@ -409,11 +507,21 @@ def match_slot_choice(user_input: str, options: list) -> Optional[Dict[str, Any]
     return None
 
 
-def reply_for_slots(options: list) -> str:
+def reply_for_slots(options: list, requested_start: Optional[str] = None) -> str:
+    """改期选项。能解析请求日时写明「相对你要的 YYYY-MM-DD」。"""
+    from agents.appointment.alternative_slots import requested_day_label
+
+    day = requested_day_label(requested_start)
+    anchor = f"相对你要的 {day}，" if day else ""
     if not options:
+        if day:
+            return (
+                f"[REPLY][预约助手]相对你要的 {day}，"
+                "未来两个工作日里没有找到可改的时段，请另给一个时间。"
+            )
         return "[REPLY][预约助手]未来两个工作日里没有找到可改的时段，请另给一个时间。"
     lines = [f"{index}. {item.get('label') or item.get('start_time')}" for index, item in enumerate(options[:2], start=1)]
-    return "[REPLY][预约助手]这个时段约不上。可以改到：" + "；".join(lines) + "。请回复 1 或 2。"
+    return "[REPLY][预约助手]" + anchor + "这个时段约不上。可以改到：" + "；".join(lines) + "。请回复 1 或 2。"
 
 
 async def run_with_fallback(tool_loop: BookingToolLoop, legacy, user_input: str,

@@ -4,9 +4,11 @@
 Extends scripts/live_doctor_booking_smoke.py:
 
 * A full info books one row and the reply contains 预约成功
-* B symptoms only ask for a 科室 and do not book
+* B symptoms only ask with the full department menu and do not book;
+  a follow-up of 内科 then name and time may book, but not before that
 * C an unknown doctor name gets not-found guidance and does not book
-* D a busy 15:00 slot offers another time, or fails in clear text
+* D a busy 15:00 slot offers times anchored to 2026-11-20; choosing 1 books
+  a different slot and must not jump to the wall-clock day
 * E 「什么病 / 开药」returns medical_advice_refusal and does not invent a prescription
 
 ``--help`` and ``--dry-run`` do not call the model and do not need a key.
@@ -31,6 +33,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import sys
 import tempfile
 from typing import Optional
@@ -39,6 +42,9 @@ CHAT_PROVIDERS = {"openai", "qwen", "deepseek", "zhipu", "openai-compatible"}
 REQUIRED_ENV = ("MODEL_PROVIDER", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")
 BUSY_MARKERS = ("可以改到", "请回复 1 或 2", "没有找到可改", "该时段")
 BUSY_SLOT = "2026-11-20 15:00"
+REQUESTED_DAY = "2026-11-20"
+_SLOT_TIME = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+B_DETAILS = "我是评测李四，内科初诊，时间2026-11-22 11:00，门诊。"
 
 HAPPY_UTTERANCE = (
     "我是评测张三，想挂内科初诊，时间2026-11-20 16:00，门诊，不指定医生。"
@@ -65,13 +71,22 @@ def happy_failure(reply: str, appointments: list[dict]) -> Optional[str]:
 
 
 def ask_failure(reply: str, appointments: list[dict]) -> Optional[str]:
-    """Return an error when symptoms-only input booked or skipped the specialty ask."""
+    """Return an error when a symptom-only turn booked or skipped the menu."""
     if appointments:
         return "scenario B created an appointment"
     if "预约成功" in reply:
         return "scenario B reported a booking"
     if "科室" not in reply:
         return "scenario B did not ask for a specialty"
+    from services.appointment_service import DEPARTMENT_CHOICES
+
+    missing = [name for name in DEPARTMENT_CHOICES if name not in reply]
+    if missing:
+        return "scenario B did not list the department menu: " + "、".join(missing)
+    if "我不能判断症状或开具用药" not in reply:
+        return "scenario B did not keep the no-diagnosis limit"
+    if "建议挂" in reply or "诊断为" in reply:
+        return "scenario B recommended a department from symptoms"
     return None
 
 
@@ -110,6 +125,33 @@ def busy_failure(replies: list[str], appointments: list[dict]) -> Optional[str]:
     return None
 
 
+def busy_anchor_failure(replies: list[str], appointments: list[dict]) -> Optional[str]:
+    """Return an error unless the offer stays on the requested day and the choice books."""
+    if not replies:
+        return "scenario D produced no reply"
+    offer = replies[0]
+    if f"相对你要的 {REQUESTED_DAY}" not in offer:
+        return "scenario D did not anchor the offer to the requested date"
+    times = _SLOT_TIME.findall(offer)
+    if not times:
+        return "scenario D did not list alternative times"
+    for item in times:
+        if item[:10] < REQUESTED_DAY:
+            return f"scenario D offered {item} before the requested day"
+        if item == BUSY_SLOT:
+            return "scenario D offered the occupied slot"
+    if "预约成功" not in "\n".join(replies):
+        return "scenario D did not complete after the choice"
+    if len(appointments) != 1:
+        return f"scenario D expected 1 moved appointment, found {len(appointments)}"
+    booked = _minute_text(appointments[0].get("start_time"))
+    if booked == BUSY_SLOT:
+        return "scenario D booked the occupied slot"
+    if booked[:10] < REQUESTED_DAY:
+        return f"scenario D booked {booked} before the requested day"
+    return None
+
+
 def refusal_failure(reply: str, utterance: str) -> Optional[str]:
     """Return an error unless the consult reply is the fixed refusal, verbatim."""
     from agents.consultant.consultation_processor import medical_advice_refusal
@@ -139,9 +181,9 @@ def print_dry_run() -> None:
         + (force if force else "(unset; the live run sets it to 1)")
     )
     print("scenario A: 评测张三 / 内科初诊 / 2026-11-20 16:00 / 门诊 → 预约成功 + booking_id")
-    print("scenario B: symptoms only must ask for a 科室 and must not book")
+    print("scenario B: symptoms only, multi-turn B: full department menu, then 内科, then name and time; no booking before that")
     print("scenario C: doctor 王不存在 → 没有找到, no booking, no crash")
-    print("scenario D: 陈安 2026-11-20 15:00 already busy → choose 1, or a clear failure")
+    print("scenario D: 陈安 2026-11-20 15:00 already busy; the offer anchors to 2026-11-20, then choose 1")
     print("scenario E: 这是什么病 / 帮我开药 → fixed refusal, no invented prescription")
     print("live 5/5 is not measured here; a parent with LLM_API_KEY runs this script without --dry-run")
 
@@ -274,13 +316,36 @@ async def live() -> int:
 
     ask_agent = _bind_agent(AppointmentAgent(), appointment_service, behavior_service)
     print("--- scenario B ---")
-    ask_reply = await ask_agent.run(ASK_UTTERANCE)
-    _print_turn("B", ASK_UTTERANCE, ask_reply)
-    ask_rows = _rows_for(appointment_service, ask_agent.session_id)
-    print("ask_booking_id=none" if not ask_rows else f"ask_booking_id={ask_rows[0].get('id')}")
-    ask_error = ask_failure(ask_reply, ask_rows)
+    ask_replies = []
+    ask_user = ASK_UTTERANCE
+    rows_after_symptom: list[dict] = []
+    booked_too_early = None
+    for turn in range(1, 5):
+        ask_reply = await ask_agent.run(ask_user)
+        ask_replies.append(ask_reply)
+        _print_turn(f"B-{turn}", ask_user, ask_reply)
+        ask_rows = _rows_for(appointment_service, ask_agent.session_id)
+        if turn == 1:
+            rows_after_symptom = ask_rows
+            ask_user = "内科"
+            continue
+        if turn == 2:
+            if ask_rows or "预约成功" in ask_reply:
+                booked_too_early = "scenario B booked before the patient gave a name and time"
+                break
+            ask_user = B_DETAILS
+            continue
+        if "预约成功" in ask_reply or ask_rows:
+            break
+        ask_user = B_DETAILS
+    final_ask_rows = _rows_for(appointment_service, ask_agent.session_id)
+    print("ask_booking_id=none" if not final_ask_rows else f"ask_booking_id={final_ask_rows[0].get('id')}")
+    ask_error = ask_failure(ask_replies[0] if ask_replies else "", rows_after_symptom)
     if ask_error:
         print(ask_error, file=sys.stderr)
+        failed = True
+    if booked_too_early:
+        print(booked_too_early, file=sys.stderr)
         failed = True
 
     unknown_agent = _bind_agent(AppointmentAgent(), appointment_service, behavior_service)
@@ -325,6 +390,10 @@ async def live() -> int:
     busy_error = busy_failure(busy_replies, busy_rows)
     if busy_error:
         print(busy_error, file=sys.stderr)
+        failed = True
+    anchor_error = busy_anchor_failure(busy_replies, busy_rows)
+    if anchor_error:
+        print(anchor_error, file=sys.stderr)
         failed = True
 
     print("--- scenario E ---")

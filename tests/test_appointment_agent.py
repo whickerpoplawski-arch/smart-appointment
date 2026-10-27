@@ -101,7 +101,9 @@ class TestHistoryManagement:
             "patient_name", "specialty", "visit_type", "start_time",
         ])
 
-        assert "请问要挂哪个科室？比如内科、外科或儿科。" in text
+        assert "我不能判断症状或开具用药" in text
+        assert "耳鼻喉科" in text
+        assert "比如内科、外科或儿科" not in text
         assert "请问患者的姓名是" not in text
         assert "初诊、复诊还是咨询" not in text
 

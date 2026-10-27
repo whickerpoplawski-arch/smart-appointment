@@ -50,22 +50,64 @@ def search_alternative_slots(now: datetime, duration_minutes: int,
     return options
 
 
+def _naive_beijing(moment: datetime) -> datetime:
+    """搜索用无时区的北京时间，避免 aware/naive 比大小失败。"""
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(time_config.BEIJING_TZ).replace(tzinfo=None)
+    return moment.replace(microsecond=0)
+
+
+def requested_start(history: Optional[Dict]) -> Optional[datetime]:
+    """解析 history.start_time。空白、未知或无法解析时返回 None。"""
+    raw = (history or {}).get("start_time")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text == "" or text == "未知" or text.lower() == "null":
+        return None
+    from agents.appointment.doctor_finder import DoctorFinder
+
+    parsed = DoctorFinder._parse_start_time(text)
+    if parsed is None:
+        return None
+    return _naive_beijing(parsed)
+
+
+def requested_day_label(value: Optional[str]) -> Optional[str]:
+    """请求日 YYYY-MM-DD。解析失败时不编一个日期。"""
+    parsed = requested_start({"start_time": value})
+    if parsed is None:
+        return None
+    return parsed.strftime("%Y-%m-%d")
+
+
+def search_lower_bound(history: Optional[Dict], now: Optional[datetime] = None) -> datetime:
+    """请求时刻能解析且晚于墙钟时，从请求时刻起搜；否则用墙钟。"""
+    wall = _naive_beijing(now or time_config.now())
+    requested = requested_start(history)
+    if requested is not None and requested > wall:
+        return requested
+    return wall
+
+
 def slots_for_history(finder, history: Dict, now: Optional[datetime] = None) -> List[dict]:
-    """用轮次默认时长，在同方向或指定医生有空的整点里找改期选项。"""
+    """用轮次默认时长找改期选项。点名医生时只给这位医生有空的整点。"""
     from agents.appointment.appointment_processor import DEFAULT_DURATION_MINUTES, AppointmentProcessor
+    from agents.appointment.message_builder import slot_is_blank
 
     duration = AppointmentProcessor.resolve_duration(history.get("visit_type"), history.get("duration"))
     if not duration:
         duration = DEFAULT_DURATION_MINUTES
-    moment = now or time_config.now()
+    moment = search_lower_bound(history, now)
     service = finder.appointment_service
 
     def is_available(start: datetime, end: datetime) -> bool:
         name = history.get("doctor_name")
-        if name and name != "未知":
+        if not slot_is_blank(name):
             person = service.get_doctor_by_name(name)
-            if person and service.is_doctor_available(person["id"], start, end):
-                return True
+            if not person:
+                return False
+            return bool(service.is_doctor_available(person["id"], start, end))
         department = None
         if hasattr(service, "match_department"):
             department = service.match_department(history.get("specialty"))
