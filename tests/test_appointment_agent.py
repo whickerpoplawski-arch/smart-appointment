@@ -94,6 +94,17 @@ class TestHistoryManagement:
 
         assert history["patient_name"] == "张三"
 
+    def test_missing_info_question_asks_specialty_before_name(self):
+        builder = MessageBuilder()
+
+        text = builder.create_missing_info_questions([
+            "patient_name", "specialty", "visit_type", "start_time",
+        ])
+
+        assert "请问要挂哪个科室？比如内科、外科或儿科。" in text
+        assert "请问患者的姓名是" not in text
+        assert "初诊、复诊还是咨询" not in text
+
     def test_should_require_patient_name_position_round_and_time(self):
         processor = make_processor()
         history = {}

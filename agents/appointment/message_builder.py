@@ -182,8 +182,7 @@ class MessageBuilder:
 
         if status == 'needs_specialty':
             return (
-                "\n机器人：请先选择科室：内科、外科、骨科、儿科、皮肤科、"
-                "眼科、耳鼻喉科、口腔科、妇产科、中医科。我不会根据症状分诊。\n"
+                f"\n机器人：{self.specialty_menu_question()}我不会根据症状分诊。\n"
             )
         if status == 'doctor_not_found':
             name = result.get('requested_doctor') or appointment_history.get('doctor_name')
@@ -213,9 +212,16 @@ class MessageBuilder:
         return "\n机器人：抱歉，暂时无法安排该就诊，请稍后重试或调整就诊条件。\n"
 
     def create_missing_info_questions(self, missing_info: List[str]) -> str:
-        """根据缺失信息创建询问"""
-        questions = [self.missing_info_prompts.get(field, f"请补充{field}信息") for field in missing_info]
-        return "\n" + " ".join(questions) + "\n"
+        """只问 ASK_SLOT_ORDER 里最靠前的一个缺槽。"""
+        missing = set(missing_info or [])
+        field = next((name for name in self.ASK_SLOT_ORDER if name in missing), None)
+        if field is None:
+            question = self.ask_one({}) if not missing else self.missing_info_prompts.get(
+                missing_info[0], f"请补充{missing_info[0]}信息"
+            )
+        else:
+            question = self.question_for(field)
+        return "\n" + question + "\n"
 
     def create_confirmation_hint_message(self) -> str:
         """患者回应不明确时，提示明确确认或拒绝"""

@@ -122,7 +122,8 @@ class TestToolLoopFallback:
         tokens = await collect(run_with_fallback(loop, legacy, "我是张三", {}))
 
         assert seen == []
-        assert "请问姓名" in "".join(tokens)
+        assert "请问要挂哪个科室？比如内科、外科或儿科。" in "".join(tokens)
+        assert "请问姓名" not in "".join(tokens)
 
     @pytest.mark.asyncio
     async def test_should_finish_from_available_observation(self):
@@ -381,6 +382,8 @@ class TestTurnBudget:
         )
         agent.appointment_history["patient_name"] = "张三"
         agent.appointment_history["specialty"] = "内科"
+        agent.appointment_history["visit_type"] = "初诊"
+        agent.appointment_history["start_time"] = "2026-11-20 15:00"
 
         for _ in range(MAX_TURNS - 1):
             tokens = await collect(agent.run_stream("继续说"))
@@ -405,11 +408,20 @@ class TestTurnBudget:
             session_id="boot",
             timeout_seconds=1,
         )
+
+        def fill_required(history):
+            history["patient_name"] = "张三"
+            history["specialty"] = "内科"
+            history["visit_type"] = "初诊"
+            history["start_time"] = "2026-11-20 15:00"
+
         agent.bind_session(registry.get("session-a"))
+        fill_required(agent.appointment_history)
         for _ in range(MAX_TURNS - 1):
             await collect(agent.run_stream("a"))
 
         agent.bind_session(registry.get("session-b"))
+        fill_required(agent.appointment_history)
         tokens = "".join(await collect(agent.run_stream("b")))
 
         assert "继续" in tokens
@@ -550,3 +562,45 @@ class TestFinishGate:
         assert called == []
         assert "时间" in tokens
         assert "缺少患者姓名" not in tokens
+
+
+class TestSingleAskCopy:
+    """空 ask_user 与多槽原文都只问最缺的一槽，且不使用禁句。"""
+
+    @pytest.mark.asyncio
+    async def test_empty_ask_uses_specialty_question_only(self):
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action("ask_user", message="")]),
+            StubFinder(),
+        )
+
+        tokens = "".join(await collect(loop.run("我想预约", {})))
+
+        assert tokens == "[REPLY][预约助手]请问要挂哪个科室？比如内科、外科或儿科。"
+        assert "请补充就诊预约需要的信息" not in tokens
+        assert "姓名" not in tokens
+
+    @pytest.mark.asyncio
+    async def test_model_multi_ask_is_replaced_by_specialty_question(self):
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action(
+                "ask_user", message="请问姓名和是初诊还是复诊"
+            )]),
+            StubFinder(),
+        )
+
+        tokens = "".join(await collect(loop.run("我想预约", {})))
+
+        assert tokens == "[REPLY][预约助手]请问要挂哪个科室？比如内科、外科或儿科。"
+
+    @pytest.mark.asyncio
+    async def test_empty_ask_with_specialty_asks_the_next_slot(self):
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action("ask_user", message="")]),
+            StubFinder(),
+        )
+
+        tokens = "".join(await collect(loop.run("挂内科", {"specialty": "内科"})))
+
+        assert tokens == "[REPLY][预约助手]请问患者的姓名是？"
+        assert "请补充就诊预约需要的信息" not in tokens

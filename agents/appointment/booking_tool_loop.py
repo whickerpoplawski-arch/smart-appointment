@@ -107,15 +107,6 @@ def question_blocking_finish(history: Dict[str, Any]) -> Optional[str]:
     return MessageBuilder.question_for(field)
 
 
-def ensure_specialty_question(message: Any, history: Dict[str, Any]) -> str:
-    """只说症状时，追问必须出现「科室」，即使模型的 ask_user 文案是空的。"""
-    text = str(message or "").strip()
-    if _is_blank(history.get("specialty")) and "科室" not in text:
-        question = "请问要挂哪个科室？比如内科、外科或儿科。"
-        text = f"{text} {question}".strip() if text else question
-    return text
-
-
 class ToolLoopFallback(Exception):
     """连续非法动作或参数，调用方应回退到现有 run_stream。"""
 
@@ -166,8 +157,10 @@ def _schema_keys_aligned() -> bool:
     return set(SCHEMA_KEYS) == set(TOOL_ARGUMENT_KEYS)
 
 
-def reply_for_ask(message: str) -> str:
-    text = (message or "").strip() or "请补充就诊预约需要的信息。"
+def reply_for_ask(message: str, history: Optional[Dict[str, Any]] = None) -> str:
+    text = (message or "").strip()
+    if not text:
+        text = MessageBuilder.ask_one(history)
     return f"[REPLY][预约助手]{text}"
 
 
@@ -189,7 +182,7 @@ def reply_for_observation(observation: Dict[str, Any]) -> str:
         return f"[REPLY][预约助手]{MessageBuilder.specialty_menu_question()}"
     if status == "no_match":
         return "[REPLY][预约助手]这个时段没有空闲医生。"
-    return "[REPLY][预约助手]请补充预约需要的信息。"
+    return f"[REPLY][预约助手]{MessageBuilder.ask_one({})}"
 
 
 def remember_find_arguments(history: Dict[str, Any], arguments: Dict[str, Any]) -> None:
@@ -243,7 +236,11 @@ class BookingToolLoop:
             merge_booking_slots(history, action.get("slots"))
             fill_default_duration(history)
             if name == "ask_user":
-                yield reply_for_ask(ensure_specialty_question(action.get("message"), history))
+                missing = MessageBuilder.first_missing_slot(history)
+                if missing is not None:
+                    yield reply_for_ask(MessageBuilder.question_for(missing))
+                else:
+                    yield reply_for_ask(action.get("message"), history)
                 return
 
             if name == "finish":
