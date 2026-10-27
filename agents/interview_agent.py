@@ -9,6 +9,7 @@ from .interview import (
     MessageBuilder,
     InterviewDatabase
 )
+from .interview.booking_tool_loop import BookingToolLoop, run_with_fallback
 
 load_dotenv()
 
@@ -23,18 +24,20 @@ class InterviewAgent:
     3. 协调整个面试预约流程
     """
 
-    def __init__(self, session_id=None, unrelated_callback=None):
+    def __init__(self, session_id=None, unrelated_callback=None, llm=None,
+                 interviewer_finder=None, tool_loop=None, timeout_seconds: float = 20.0):
         # 基础设置
         self.session_id = session_id or str(uuid.uuid4())
         self.unrelated_callback = unrelated_callback
         self.state = None
+        self._turn_count = 0
 
-        # 初始化LLM
-        self.llm = self._initialize_llm()
+        # 初始化LLM。测试注入假模型，避免在导入或单测里访问真实接口。
+        self.llm = llm if llm is not None else self._initialize_llm()
 
         # 初始化组件
         self.input_parser = InputParser(self.llm)
-        self.interviewer_finder = InterviewerFinder()
+        self.interviewer_finder = interviewer_finder or InterviewerFinder()
         self.message_builder = MessageBuilder()
         self.interview_database = InterviewDatabase()
         self.interview_processor = InterviewProcessor(
@@ -43,6 +46,12 @@ class InterviewAgent:
             self.message_builder,
             self.interview_database,
             self.llm
+        )
+        self.tool_loop = tool_loop or BookingToolLoop(
+            self.llm,
+            self.interviewer_finder,
+            timeout_seconds=timeout_seconds,
+            on_finish=self._finish_from_tool,
         )
 
         # 会话管理
@@ -87,12 +96,36 @@ class InterviewAgent:
         """设置共享状态"""
         self.state = shared_state
 
+    async def _finish_from_tool(self, observation, history) -> str:
+        """策略选定 finish 后，沿用现有落库路径。"""
+        interviewer = (observation or {}).get("interviewer")
+        if not interviewer:
+            return "[REPLY][面试机器人]还不能结束，我还没有查到可约的面试官。"
+        reply = await self.interview_processor._process_successful_interview(
+            interviewer, history, self.session_id
+        )
+        return f"[REPLY][面试机器人]{reply}"
+
+    async def _legacy_stream(self, user_input):
+        async for token in self._run_stream_fallback(user_input):
+            yield token
+
     async def run_stream(self, user_input=None):
         """
         流式处理候选人面试预约请求的主函数
 
-        这是整个面试预约流程的入口点，协调各个组件完成预约
+        先走有界工具环。模型超时或连续非法参数时，回退到原来的抽槽流程。
         """
+        if user_input is None:
+            user_input = input("候选人：")
+
+        async for token in run_with_fallback(
+            self.tool_loop, self._legacy_stream, user_input, self.interview_history
+        ):
+            yield token
+
+    async def _run_stream_fallback(self, user_input=None):
+        """原来的抽槽、追问、落库流程，只在工具环回退时使用。"""
         if user_input is None:
             user_input = input("候选人：")
 
