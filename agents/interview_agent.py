@@ -10,6 +10,7 @@ from .interview import (
     InterviewDatabase
 )
 from .interview.booking_tool_loop import BookingToolLoop, run_with_fallback
+from .session_registry import new_interview_history
 
 load_dotenv()
 
@@ -74,23 +75,25 @@ class InterviewAgent:
         return chat_history
 
     def reset(self):
-        """重置面试预约历史和状态"""
-        self.interview_history = {
-            "candidate_name": None,
-            "position": None,
-            "round": None,
-            "mode": None,
-            "start_time": None,
-            "duration": None,
-            "interviewer_name": None,
-            "preference": None,
-            "recommended_interviewer": None,
-            "original_interviewer": None,
-            "awaiting_confirmation": False,
-            "recommendation_declined": False
-        }
+        """重置当前绑定的面试预约历史。清空原字典，避免和会话登记表脱节。"""
+        blank = new_interview_history()
+        if getattr(self, "interview_history", None) is None:
+            self.interview_history = blank
+        else:
+            self.interview_history.clear()
+            self.interview_history.update(blank)
         self.finished = False
-        self.chat_history.clear()
+        if self.chat_history is not None:
+            self.chat_history.clear()
+
+    def bind_session(self, record):
+        """把本轮请求切到指定 session 的槽位、聊天记录和共享状态。"""
+        self.session_id = record.session_id
+        self._session_record = record
+        self.interview_history = record.interview_history
+        self.chat_history = record.chat_history
+        self.state = record.shared_state
+        self.chats_by_session_id[record.session_id] = record.chat_history
 
     def set_shared_state(self, shared_state):
         """设置共享状态"""

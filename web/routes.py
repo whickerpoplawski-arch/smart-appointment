@@ -25,7 +25,7 @@ router = APIRouter(tags=["Web界面"])
 
 class ChatRequest(BaseModel):
     message: str
-    state: str | None = None
+    session_id: str | None = None
 
 
 def _utilization_percent(busy_periods, work_start_hour: int, work_end_hour: int) -> int:
@@ -84,7 +84,7 @@ async def read_root(request: Request):
 async def chat_stream_endpoint(chat: ChatRequest):
     """处理流式聊天请求"""
     async def token_generator():
-        async for token in ProcessUserInput_stream(chat.message):
+        async for token in ProcessUserInput_stream(chat.message, session_id=chat.session_id):
             yield token
     return StreamingResponse(token_generator(), media_type="text/plain")
 
@@ -92,7 +92,7 @@ async def chat_stream_endpoint(chat: ChatRequest):
 async def chat_endpoint(chat: ChatRequest):
     """兼容性聊天接口，建议使用/chat/stream"""
     async def token_generator():
-        async for token in ProcessUserInput_stream(chat.message):
+        async for token in ProcessUserInput_stream(chat.message, session_id=chat.session_id):
             yield token
     return StreamingResponse(token_generator(), media_type="text/plain")
 

@@ -1,8 +1,8 @@
 """
 聊天流式处理入口
 
-会话说明：应用是单候选人场景，全局共享一个 session_id，
-这样多轮对话中的面试信息（岗位、轮次、时间）能持续累积。
+会话按请求里的 session_id 隔离。槽位、聊天记录和共享状态都放在 SessionRegistry 里，
+不再使用模块级的全局 session。
 
 依赖说明：Agent 依赖 LLM 凭证与向量检索依赖，这里改为首次对话时惰性构建。
 管理页面（面试官、日程、候选人分析、知识库）因此不依赖模型凭证即可打开，
@@ -10,11 +10,18 @@
 """
 import uuid
 
-# 全局session_id用于单候选人场景
-global_session_id = str(uuid.uuid4())
-
-# 惰性构建的任务分类 Agent，首次对话后复用
+# 惰性构建的任务分类 Agent 与会话登记表。Agent 壳可以复用，状态必须按 session 分开。
 _task_agent = None
+_session_registry = None
+
+
+def get_session_registry():
+    """获取（必要时创建）会话登记表。"""
+    global _session_registry
+    if _session_registry is None:
+        from agents.session_registry import SessionRegistry
+        _session_registry = SessionRegistry()
+    return _session_registry
 
 
 def get_task_agent():
@@ -26,29 +33,32 @@ def get_task_agent():
         from agents.consultant_agent import ConsultantAgent
 
         _task_agent = TaskClassificationAgent(
-            InterviewAgent(session_id=global_session_id),
-            ConsultantAgent(session_id=global_session_id)
+            InterviewAgent(),
+            ConsultantAgent()
         )
     return _task_agent
 
 
-async def ProcessUserInput_stream(user_input, state=None, context=None):
+async def ProcessUserInput_stream(user_input, session_id=None):
     """
     user_input: 候选人输入
-    state: 当前对话状态（如 None, 'classify', 'interview', 'query', ...）
-    context: 可选，保存多轮对话上下文（如 dict，可存储 agent 的 history 等）
-    返回: (reply, next_state, next_context)
+    session_id: 本次会话。缺省时新建一个，调用方应在后续请求里带回。
     """
-    # 初始化 context
-    if context is None:
-        context = {}
+    if not session_id:
+        session_id = str(uuid.uuid4())
 
     try:
+        registry = get_session_registry()
+        record = registry.get(session_id)
         task_agent = get_task_agent()
+        task_agent.bind_session(record)
     except Exception as e:
         # 模型或向量依赖未配置时给出可读提示，而不是让聊天接口直接 500
         yield f"[REPLY][面试预约助手]服务暂未就绪，请检查模型配置后重试。（{e}）"
         return
 
-    async for token in task_agent.classify_task_stream(user_input):
-        yield token
+    try:
+        async for token in task_agent.classify_task_stream(user_input):
+            yield token
+    finally:
+        registry.save(record)

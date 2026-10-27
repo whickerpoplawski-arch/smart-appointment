@@ -565,10 +565,15 @@
         lastBotBubble = chatBox.querySelector('.message.bot:last-child .bubble');
         
         try {
+            if (!window.interviewSessionId) {
+                window.interviewSessionId = (window.crypto && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : String(Date.now());
+            }
             const res = await fetch('/chat/stream', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({message: text})
+                body: JSON.stringify({message: text, session_id: window.interviewSessionId})
             });
             
             hideTypingIndicator();

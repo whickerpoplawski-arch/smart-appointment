@@ -56,6 +56,19 @@ class TaskClassificationAgent:
         """初始化通用聊天模型"""
         return create_chat_model(temperature=0)
 
+    def bind_session(self, record):
+        """把分类器、面试机器人和咨询机器人切到同一次请求的 session。"""
+        self.state_manager.state = record.shared_state
+        self.state = record.shared_state
+        self.agent_router.state_manager = self.state_manager
+        self.agent_router._setup_agent_states()
+        if self.interview_agent and hasattr(self.interview_agent, "bind_session"):
+            self.interview_agent.bind_session(record)
+        if self.consultant_agent is not None:
+            self.consultant_agent.session_id = record.session_id
+            if hasattr(self.consultant_agent, "set_shared_state"):
+                self.consultant_agent.set_shared_state(record.shared_state)
+
     def _setup_callbacks(self):
         """设置Agent的回调函数"""
         if self.interview_agent and hasattr(self.interview_agent, 'unrelated_callback'):

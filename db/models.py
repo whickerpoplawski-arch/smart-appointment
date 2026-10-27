@@ -123,6 +123,14 @@ class CandidatePreference(Base):
     )
 
 
+class SessionSlotSnapshot(Base):
+    """进行中的预约槽位。按 session 保存，进程重启后可以恢复到缺哪个槽、是否在等确认。"""
+    __tablename__ = "session_slot_snapshots"
+    session_id = Column(String, primary_key=True)
+    slots_json = Column(JSON, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class CandidateRecommendation(Base):
     """候选人推荐——面试官推荐与面试回访提醒"""
     __tablename__ = 'candidate_recommendations'
