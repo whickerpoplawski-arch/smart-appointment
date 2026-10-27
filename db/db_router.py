@@ -1,9 +1,9 @@
 from .base import SessionManager
 from .repositories import (
-    InterviewerRepository,
-    InterviewRepository,
+    DoctorRepository,
+    AppointmentRepository,
     KnowledgeRepository,
-    CandidateBehaviorRepository,
+    PatientBehaviorRepository,
 )
 from typing import Optional
 
@@ -18,7 +18,7 @@ class DatabaseRouter:
     3. 协调各个Repository的操作
     """
 
-    def __init__(self, db_path: str = 'sqlite:///data/interview_agent.db'):
+    def __init__(self, db_path: str = 'sqlite:///data/doctor_appointment.db'):
         """
         初始化数据库路由器
 
@@ -28,20 +28,20 @@ class DatabaseRouter:
         self.session_manager = SessionManager(db_path)
 
         # 初始化各个Repository
-        self.interviewer_repo = InterviewerRepository(self.session_manager)
-        self.interview_repo = InterviewRepository(self.session_manager)
+        self.doctor_repo = DoctorRepository(self.session_manager)
+        self.appointment_repo = AppointmentRepository(self.session_manager)
         self.knowledge_repo = KnowledgeRepository(self.session_manager)
-        self.candidate_behavior_repo = CandidateBehaviorRepository(self.session_manager)
+        self.patient_behavior_repo = PatientBehaviorRepository(self.session_manager)
 
     @property
-    def interviewers(self) -> InterviewerRepository:
-        """获取面试官数据仓库（含日程方法）"""
-        return self.interviewer_repo
+    def doctors(self) -> DoctorRepository:
+        """获取医生数据仓库（含日程方法）"""
+        return self.doctor_repo
 
     @property
-    def interviews(self) -> InterviewRepository:
-        """获取面试记录数据仓库"""
-        return self.interview_repo
+    def appointments(self) -> AppointmentRepository:
+        """获取预约记录数据仓库"""
+        return self.appointment_repo
 
     @property
     def knowledge(self) -> KnowledgeRepository:
@@ -49,57 +49,57 @@ class DatabaseRouter:
         return self.knowledge_repo
 
     @property
-    def candidate_behavior(self) -> CandidateBehaviorRepository:
-        """获取候选人行为数据仓库"""
-        return self.candidate_behavior_repo
+    def patient_behavior(self) -> PatientBehaviorRepository:
+        """获取患者行为数据仓库"""
+        return self.patient_behavior_repo
 
     def close(self):
         """关闭数据库连接"""
         self.session_manager.close()
 
 
-class InterviewerDBRouter:
+class DoctorDBRouter:
     """
-    面试官数据库路由器
+    医生数据库路由器
 
-    对 DatabaseRouter 的面试官/日程能力做一层薄封装，方便不关心会话细节的调用方。
+    对 DatabaseRouter 的医生/日程能力做一层薄封装，方便不关心会话细节的调用方。
     """
 
     def __init__(self, db_type='local', **kwargs):
         self.db_router = DatabaseRouter(**kwargs)
-        self.interviewer_repo = self.db_router.interviewers
+        self.doctor_repo = self.db_router.doctors
 
-    # 面试官相关方法
-    def add_interviewer(self, name, department=None, bio=None) -> int:
-        return self.interviewer_repo.add_interviewer(name, department, bio)
+    # 医生相关方法
+    def add_doctor(self, name, department=None, bio=None) -> int:
+        return self.doctor_repo.add_doctor(name, department, bio)
 
-    def get_interviewer_by_name(self, name: str):
-        return self.interviewer_repo.get_interviewer_by_name(name)
+    def get_doctor_by_name(self, name: str):
+        return self.doctor_repo.get_doctor_by_name(name)
 
-    def get_interviewer_by_id(self, interviewer_id: int):
-        return self.interviewer_repo.get_interviewer_by_id(interviewer_id)
+    def get_doctor_by_id(self, doctor_id: int):
+        return self.doctor_repo.get_doctor_by_id(doctor_id)
 
-    def get_all_interviewers(self):
-        return self.interviewer_repo.get_all_interviewers()
+    def get_all_doctors(self):
+        return self.doctor_repo.get_all_doctors()
 
-    def get_interviewers_by_department(self, department: str):
-        return self.interviewer_repo.get_interviewers_by_department(department)
+    def get_doctors_by_department(self, department: str):
+        return self.doctor_repo.get_doctors_by_department(department)
 
     def get_all_departments(self):
-        return self.interviewer_repo.get_all_departments()
+        return self.doctor_repo.get_all_departments()
 
     # 日程相关方法
-    def add_schedule(self, interviewer_id: int, start_time, end_time, status, interview_id=None) -> int:
-        return self.interviewer_repo.add_schedule(interviewer_id, start_time, end_time, status, interview_id)
+    def add_schedule(self, doctor_id: int, start_time, end_time, status, appointment_id=None) -> int:
+        return self.doctor_repo.add_schedule(doctor_id, start_time, end_time, status, appointment_id)
 
-    def get_interviewer_schedules(self, interviewer_id: int, date):
-        return self.interviewer_repo.get_interviewer_schedules(interviewer_id, date)
+    def get_doctor_schedules(self, doctor_id: int, date):
+        return self.doctor_repo.get_doctor_schedules(doctor_id, date)
 
     def get_schedules_by_date(self, date):
-        return self.interviewer_repo.get_schedules_by_date(date)
+        return self.doctor_repo.get_schedules_by_date(date)
 
-    def is_interviewer_available(self, interviewer_id: int, start_time, end_time) -> bool:
-        return self.interviewer_repo.is_interviewer_available(interviewer_id, start_time, end_time)
+    def is_doctor_available(self, doctor_id: int, start_time, end_time) -> bool:
+        return self.doctor_repo.is_doctor_available(doctor_id, start_time, end_time)
 
-    def get_available_interviewers(self, start_time, end_time, department=None):
-        return self.interviewer_repo.get_available_interviewers(start_time, end_time, department)
+    def get_available_doctors(self, start_time, end_time, department=None):
+        return self.doctor_repo.get_available_doctors(start_time, end_time, department)

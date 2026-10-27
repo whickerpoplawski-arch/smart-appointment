@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>面试知识库管理 - 面试预约助手</title>
+    <title>就诊须知库管理 - 就诊预约助手</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -465,8 +465,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2><i class="fas fa-brain"></i> 面试知识库管理</h2>
-            <p>维护面试流程、轮次考察、材料准备与改期政策等 FAQ，供咨询 Agent 检索回答</p>
+            <h2><i class="fas fa-brain"></i> 就诊须知库管理</h2>
+            <p>维护预约步骤、就诊类型时长、互联网医院与门诊须知，供咨询检索。不提供诊断或处方。</p>
         </div>
         
         <div class="content">
@@ -500,7 +500,7 @@
                 <h3>🔍 智能搜索测试</h3>
                 <div class="form-group">
                     <label for="searchQuery">搜索查询：</label>
-                    <input type="text" id="searchQuery" class="form-control" placeholder="输入面试相关问题，如：线上面试要准备什么、可以改期几次">
+                    <input type="text" id="searchQuery" class="form-control" placeholder="输入就诊相关问题，如：互联网医院要准备什么、可以改期几次">
                 </div>
                 <div style="display: flex; gap: 15px;">
                     <div class="form-group" style="flex: 1;">
@@ -543,7 +543,7 @@
                     </div>
                     <div class="form-group">
                         <label for="newCategory">分类：</label>
-                        <input type="text" id="newCategory" class="form-control" placeholder="如：面试流程、轮次考察、面试材料、改期政策">
+                        <input type="text" id="newCategory" class="form-control" placeholder="如：预约步骤、就诊类型、互联网医院、门诊、改期">
                     </div>
                     <div class="form-group">
                         <label for="newKeywords">关键词（用逗号分隔）：</label>
@@ -976,5 +976,6 @@
         }
     </script>
     </div>
+    {% include "_disclaimer.html" %}
 </body>
 </html>

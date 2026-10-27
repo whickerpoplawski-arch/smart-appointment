@@ -9,18 +9,18 @@ Database Base Module
 
 from .session_manager import SessionManager
 from .interfaces import (
-    BaseInterviewerRepository,
+    BaseDoctorRepository,
     BaseScheduleRepository,
-    BaseInterviewRepository,
+    BaseAppointmentRepository,
     BaseKnowledgeRepository,
-    BaseCandidateBehaviorRepository,
+    BasePatientBehaviorRepository,
 )
 
 __all__ = [
     'SessionManager',
-    'BaseInterviewerRepository',
+    'BaseDoctorRepository',
     'BaseScheduleRepository',
-    'BaseInterviewRepository',
+    'BaseAppointmentRepository',
     'BaseKnowledgeRepository',
-    'BaseCandidateBehaviorRepository',
+    'BasePatientBehaviorRepository',
 ]

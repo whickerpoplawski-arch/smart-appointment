@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>面试预约助手 - AI聊天机器人</title>
+    <title>就诊预约助手 - AI聊天机器人</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -368,30 +368,30 @@
         <div class="header">
             <div class="header-title">
                 <i class="fas fa-robot"></i>
-                面试预约助手
+                就诊预约助手
             </div>
             <div class="header-subtitle">
-                AI 驱动的面试预约系统 - 候选人自助预约面试官，自动匹配空闲时段
+                AI 驱动的就诊预约系统 - 患者自助预约医生，自动匹配空闲时段
             </div>
         </div>
 
         <!-- 导航栏 -->
         <div class="nav-bar">
-            <button class="nav-btn" onclick="window.location.href='/interviewer'">
+            <button class="nav-btn" onclick="window.location.href='/doctor'">
                 <i class="fas fa-user-tie"></i>
-                面试官状态
+                医生状态
             </button>
-            <button class="nav-btn" onclick="window.location.href='/interviewer_schedule'">
+            <button class="nav-btn" onclick="window.location.href='/doctor_schedule'">
                 <i class="fas fa-calendar-alt"></i>
-                面试官日程
+                医生日程
             </button>
-            <button class="nav-btn" onclick="window.location.href='/candidate_analysis'">
+            <button class="nav-btn" onclick="window.location.href='/patient_analysis'">
                 <i class="fas fa-chart-line"></i>
-                候选人分析
+                患者分析
             </button>
             <button class="nav-btn" onclick="window.location.href='/knowledge'">
                 <i class="fas fa-database"></i>
-                面试知识库
+                就诊须知库
             </button>
             <button class="nav-btn" id="clear-btn">
                 <i class="fas fa-trash-alt"></i>
@@ -408,17 +408,17 @@
                 </div>
                 <div class="bubble">
                     <div class="bot-info">
-                        👋 您好！我是面试预约助手，很高兴为您服务！
+                        👋 您好！我是就诊预约助手，很高兴为您服务！
                     </div>
                     <div class="bot-reply">
                         我可以帮您：<br>
-                        • 📅 预约面试时间与面试官<br>
-                        • 👔 按应聘岗位匹配对口面试官<br>
-                        • 🔄 面试官时间冲突时推荐同方向人选<br>
-                        • 💬 解答面试流程、材料与改期问题
+                        • 📅 预约就诊时间与医生<br>
+                        • 👔 按就诊科室匹配对口医生<br>
+                        • 🔄 医生时间冲突时推荐同科室人选<br>
+                        • 💬 解答预约流程、材料与改期问题
                     </div>
                     <div class="bot-success">
-                        请告诉我您的姓名、应聘岗位，以及方便面试的时间
+                        请告诉我您的姓名、就诊科室，以及方便就诊的时间
                     </div>
                 </div>
             </div>
@@ -437,7 +437,7 @@
         <!-- 输入区域 -->
         <div class="input-area">
             <form id="chat-form">
-                <input type="text" id="user-input" placeholder="例如：我是张三，想约明天下午三点面试后端开发，一面" autocomplete="off" required>
+                <input type="text" id="user-input" placeholder="例如：我是张三，想约明天下午三点内科初诊，门诊" autocomplete="off" required>
                 <button id="send-btn" type="submit">
                     <i class="fas fa-paper-plane"></i>
                     发送
@@ -515,11 +515,11 @@
                     
                     // 检查回复类型并应用不同样式
                     let styledReply = replyText;
-                    if (replyText.includes('预约成功') || replyText.includes('已为候选人')) {
-                        // 面试预约成功
+                    if (replyText.includes('预约成功') || replyText.includes('已为患者')) {
+                        // 就诊预约成功
                         styledReply = `<div class="bot-success">✅ ${replyText}</div>`;
                     } else if (replyText.includes('抱歉') || replyText.includes('失败') || replyText.includes('已有安排') || replyText.includes('没有空闲')) {
-                        // 面试预约失败或冲突
+                        // 就诊预约失败或冲突
                         styledReply = `<div class="bot-error">❌ ${replyText}</div>`;
                     } else if (replyText.includes('请问') || replyText.includes('需要') || replyText.includes('愿意')) {
                         // 追问缺失信息或推荐确认
@@ -565,10 +565,15 @@
         lastBotBubble = chatBox.querySelector('.message.bot:last-child .bubble');
         
         try {
+            if (!window.appointmentSessionId) {
+                window.appointmentSessionId = (window.crypto && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : String(Date.now());
+            }
             const res = await fetch('/chat/stream', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({message: text})
+                body: JSON.stringify({message: text, session_id: window.appointmentSessionId})
             });
             
             hideTypingIndicator();
@@ -621,5 +626,6 @@
         userInput.focus();
     });
     </script>
+    {% include "_disclaimer.html" %}
 </body>
 </html>

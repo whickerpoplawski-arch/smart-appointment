@@ -3,12 +3,12 @@
 import pytest
 
 from agents.task_classification.agent_router import AgentRouter
-from agents.task_classification.state_manager import StateManager
+from agents.task_classification.state_manager import IllegalStateTransition, StateManager
 from agents.task_classification.task_classifier import TaskClassifier
 from config.constants import StateEnum, SharedState
 
 
-class FakeInterviewAgent:
+class FakeAppointmentAgent:
     def __init__(self):
         self.state = None
         self.received = []
@@ -18,7 +18,7 @@ class FakeInterviewAgent:
 
     async def run_stream(self, user_input=None):
         self.received.append(user_input)
-        yield "[REPLY][面试机器人]已收到"
+        yield "[REPLY][预约助手]已收到"
 
 
 class FakeConsultantAgent:
@@ -47,9 +47,12 @@ class TestTaskClassifierPrompt:
 
         template = classifier.prompt.template
 
-        assert "interview（预约面试任务）" in template
+        assert "appointment（预约就诊任务）" in template
         assert "query（查询任务）" in template
-        assert "面试官" in template
+        assert "医生" in template
+        assert "pay" not in template
+        assert "statistics" not in template
+        assert TaskClassifier.VALID_CATEGORIES == {"appointment", "query", "other"}
 
 
 class TestStateManager:
@@ -59,11 +62,11 @@ class TestStateManager:
         assert manager.get_current_state() == StateEnum.CLASSIFY
         assert manager.should_classify() is True
 
-    def test_should_transition_to_interview_and_back(self):
+    def test_should_transition_to_appointment_and_back(self):
         manager = StateManager()
 
-        manager.transition_to_interview()
-        assert manager.is_in_interview_flow() is True
+        manager.transition_to_appointment()
+        assert manager.is_in_appointment_flow() is True
         assert manager.should_classify() is False
 
         manager.reset_to_classify()
@@ -79,34 +82,34 @@ class TestStateManager:
     def test_should_share_state_with_agents(self):
         shared_state = SharedState()
         manager = StateManager(shared_state)
-        manager.transition_to_interview()
+        manager.transition_to_appointment()
 
-        assert shared_state.value == StateEnum.INTERVIEW
+        assert shared_state.value == StateEnum.APPOINTMENT
 
 
 class TestAgentRouter:
     @pytest.mark.asyncio
-    async def test_should_route_to_interview_agent(self):
-        interview_agent = FakeInterviewAgent()
+    async def test_should_route_to_appointment_agent(self):
+        appointment_agent = FakeAppointmentAgent()
         manager = StateManager()
-        router = AgentRouter(interview_agent, FakeConsultantAgent(), manager)
+        router = AgentRouter(appointment_agent, FakeConsultantAgent(), manager)
 
-        tokens = [token async for token in router.route_to_interview("约明天下午三点一面")]
+        tokens = [token async for token in router.route_to_appointment("约明天下午三点一面")]
 
-        assert interview_agent.received == ["约明天下午三点一面"]
-        assert any("预约面试任务" in token for token in tokens)
-        assert manager.is_in_interview_flow() is True
+        assert appointment_agent.received == ["约明天下午三点一面"]
+        assert not any("[THOUGHT]" in token for token in tokens)
+        assert manager.is_in_appointment_flow() is True
 
     @pytest.mark.asyncio
     async def test_should_route_to_consultant(self):
         consultant = FakeConsultantAgent()
         manager = StateManager()
-        router = AgentRouter(FakeInterviewAgent(), consultant, manager)
+        router = AgentRouter(FakeAppointmentAgent(), consultant, manager)
 
-        tokens = [token async for token in router.route_to_consultation("线上面试要准备什么")]
+        tokens = [token async for token in router.route_to_consultation("互联网医院要准备什么")]
 
-        assert consultant.received == ["线上面试要准备什么"]
-        assert any("咨询任务" in token for token in tokens)
+        assert consultant.received == ["互联网医院要准备什么"]
+        assert not any("[THOUGHT]" in token for token in tokens)
         assert manager.is_in_consultation_flow() is True
 
     @pytest.mark.asyncio
@@ -117,3 +120,44 @@ class TestAgentRouter:
         reply = "".join(tokens)
 
         assert "暂不支持" in reply
+
+
+class TestStateBudget:
+    def test_should_reject_illegal_transition(self):
+        manager = StateManager()
+        manager.transition_to_appointment()
+
+        with pytest.raises(IllegalStateTransition):
+            manager.transition_to_consultation()
+
+        assert manager.is_in_appointment_flow() is True
+
+    def test_should_allow_reset_when_already_classifying(self):
+        manager = StateManager()
+
+        manager.reset_to_classify()
+        manager.force_reset()
+
+        assert manager.get_current_state() == StateEnum.CLASSIFY
+
+    @pytest.mark.asyncio
+    async def test_should_stop_reclassify_when_unrelated_depth_reached(self):
+        from agents.task_classification.unrelated_handler import UnrelatedHandler
+        from agents.task_classification_agent import TaskClassificationAgent
+
+        class ExplodingProcessor:
+            async def process_task_stream(self, task):
+                raise AssertionError("深度达到 1 后不能再进 process_task_stream")
+                yield task
+
+        agent = TaskClassificationAgent.__new__(TaskClassificationAgent)
+        agent.unrelated_handler = UnrelatedHandler(StateManager())
+        agent.classification_processor = ExplodingProcessor()
+
+        reply = await agent.handle_unrelated("今天天气怎么样", depth=1)
+        streamed = [token async for token in agent.handle_unrelated_async("今天天气怎么样", depth=1)]
+
+        assert "就诊" in reply
+        assert "process_task_stream" not in reply
+        assert not any("[THOUGHT]" in token for token in streamed)
+        assert "就诊" in "".join(streamed)

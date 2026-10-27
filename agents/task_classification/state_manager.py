@@ -8,8 +8,16 @@
 4. 确保状态转换的正确性和安全性
 """
 
+import logging
+
 from config.constants import SharedState, StateEnum
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+class IllegalStateTransition(Exception):
+    """当前状态不允许转到目标状态。"""
 
 
 class StateManager:
@@ -29,10 +37,15 @@ class StateManager:
         return self.state.value or StateEnum.CLASSIFY
 
     def set_state(self, new_state: StateEnum) -> None:
-        """设置新状态"""
+        """设置新状态。相同状态直接返回；非法转换抛错，不再静默写入。"""
+        current = self.get_current_state()
+        if current == new_state:
+            return
+        if not self.can_transition_to(new_state):
+            raise IllegalStateTransition(f"非法状态转换: {current} -> {new_state}")
         old_state = self.state.value
         self.state.value = new_state
-        print(f"状态转换: {old_state} -> {new_state}")
+        logger.info("状态转换: %s -> %s", old_state, new_state)
 
     def reset_to_classify(self) -> None:
         """重置状态到分类状态"""
@@ -43,17 +56,17 @@ class StateManager:
         current_state = self.get_current_state()
         return current_state == StateEnum.CLASSIFY or current_state is None
 
-    def is_in_interview_flow(self) -> bool:
-        """判断是否在面试预约流程中"""
-        return self.get_current_state() == StateEnum.INTERVIEW
+    def is_in_appointment_flow(self) -> bool:
+        """判断是否在就诊预约流程中"""
+        return self.get_current_state() == StateEnum.APPOINTMENT
 
     def is_in_consultation_flow(self) -> bool:
         """判断是否在咨询流程中"""
         return self.get_current_state() == StateEnum.CONSULT
 
-    def transition_to_interview(self) -> None:
-        """转换到面试预约状态"""
-        self.set_state(StateEnum.INTERVIEW)
+    def transition_to_appointment(self) -> None:
+        """转换到就诊预约状态"""
+        self.set_state(StateEnum.APPOINTMENT)
 
     def transition_to_consultation(self) -> None:
         """转换到咨询状态"""
@@ -64,7 +77,7 @@ class StateManager:
         state = self.get_current_state()
         descriptions = {
             StateEnum.CLASSIFY: "任务分类状态 - 等待识别用户意图",
-            StateEnum.INTERVIEW: "面试预约状态 - 正在处理面试预约请求",
+            StateEnum.APPOINTMENT: "就诊预约状态 - 正在处理就诊预约请求",
             StateEnum.CONSULT: "咨询流程状态 - 正在处理咨询请求"
         }
         return descriptions.get(state, "未知状态")
@@ -75,8 +88,8 @@ class StateManager:
 
         # 定义允许的状态转换
         allowed_transitions = {
-            StateEnum.CLASSIFY: [StateEnum.INTERVIEW, StateEnum.CONSULT],
-            StateEnum.INTERVIEW: [StateEnum.CLASSIFY],
+            StateEnum.CLASSIFY: [StateEnum.APPOINTMENT, StateEnum.CONSULT],
+            StateEnum.APPOINTMENT: [StateEnum.CLASSIFY],
             StateEnum.CONSULT: [StateEnum.CLASSIFY]
         }
 
@@ -84,5 +97,5 @@ class StateManager:
 
     def force_reset(self) -> None:
         """强制重置状态（用于错误恢复）"""
-        print("强制重置状态到分类状态")
+        logger.info("强制重置状态到分类状态")
         self.reset_to_classify()

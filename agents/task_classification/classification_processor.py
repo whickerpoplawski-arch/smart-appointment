@@ -54,8 +54,8 @@ class ClassificationProcessor:
                 category = await self.task_classifier.classify_task(task)
 
                 # 根据分类结果路由
-                if category == "interview" and self.agent_router.interview_agent:
-                    async for token in self.agent_router.route_to_interview(task):
+                if category == "appointment" and self.agent_router.appointment_agent:
+                    async for token in self.agent_router.route_to_appointment(task):
                         yield token
                 elif category == "query" and self.agent_router.consultant_agent:
                     async for token in self.agent_router.route_to_consultation(task):
@@ -89,19 +89,19 @@ class ClassificationProcessor:
             if self.state_manager.should_classify():
                 category = await self.task_classifier.classify_task(task)
 
-                if category == "interview" and self.agent_router.interview_agent:
-                    self.state_manager.transition_to_interview()
-                    return await self.agent_router.interview_agent.run(user_input=task)
+                if category == "appointment" and self.agent_router.appointment_agent:
+                    self.state_manager.transition_to_appointment()
+                    return await self.agent_router.appointment_agent.run(user_input=task)
                 elif category == "query" and self.agent_router.consultant_agent:
                     self.state_manager.transition_to_consultation()
                     async with self.agent_router.consultant_agent as agent:
                         return await agent.consult(task)
                 else:
-                    return "暂不支持该类型任务。请只询问和面试预约相关的问题。"
+                    return "暂不支持该类型任务。请只询问和就诊预约相关的问题。"
             else:
                 # 根据当前状态继续处理
-                if self.state_manager.is_in_interview_flow():
-                    return await self.agent_router.interview_agent.run(user_input=task)
+                if self.state_manager.is_in_appointment_flow():
+                    return await self.agent_router.appointment_agent.run(user_input=task)
                 elif self.state_manager.is_in_consultation_flow():
                     async with self.agent_router.consultant_agent as agent:
                         return await agent.consult(task)

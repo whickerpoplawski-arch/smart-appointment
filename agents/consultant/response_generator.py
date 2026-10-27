@@ -43,6 +43,12 @@ class ResponseGenerator:
             for char in error_msg:
                 yield char
     
+    def note_unrelated(self) -> None:
+        """咨询无关时只记日志，不把思考标签写进聊天流。"""
+        import logging
+        logging.getLogger(__name__).info("咨询机器人：这个问题不是咨询类问题，转回给归类机器人处理")
+
     def create_unrelated_message(self) -> str:
-        """创建与咨询无关的回复消息"""
-        return "[THOUGHT][咨询机器人] 咨询机器人：这个问题不是咨询类问题，我将转回给归类机器人处理。"
+        """保留给旧调用。聊天流不再输出思考标签。"""
+        self.note_unrelated()
+        return ""

@@ -25,15 +25,15 @@ router = APIRouter(tags=["Web界面"])
 
 class ChatRequest(BaseModel):
     message: str
-    state: str | None = None
+    session_id: str | None = None
 
 
 def _utilization_percent(busy_periods, work_start_hour: int, work_end_hour: int) -> int:
     """
-    计算面试官当天在标准面试时段内的占用率（0-100）
+    计算医生当天在标准就诊时段内的占用率（0-100）
 
     只统计落在 [work_start_hour, work_end_hour) 内的部分，跨出标准时段的时间
-    不计入分母也不计入分子：口径统一，才能横向比较不同面试官的排期紧不紧。
+    不计入分母也不计入分子：口径统一，才能横向比较不同医生的排期紧不紧。
     时间段先按区间合并再求并集，重叠或衔接的安排不会重复计入。
     解析失败的时间段直接跳过，页面展示宁少不多，不让脏数据再抛一次异常。
     """
@@ -84,7 +84,7 @@ async def read_root(request: Request):
 async def chat_stream_endpoint(chat: ChatRequest):
     """处理流式聊天请求"""
     async def token_generator():
-        async for token in ProcessUserInput_stream(chat.message):
+        async for token in ProcessUserInput_stream(chat.message, session_id=chat.session_id):
             yield token
     return StreamingResponse(token_generator(), media_type="text/plain")
 
@@ -92,80 +92,80 @@ async def chat_stream_endpoint(chat: ChatRequest):
 async def chat_endpoint(chat: ChatRequest):
     """兼容性聊天接口，建议使用/chat/stream"""
     async def token_generator():
-        async for token in ProcessUserInput_stream(chat.message):
+        async for token in ProcessUserInput_stream(chat.message, session_id=chat.session_id):
             yield token
     return StreamingResponse(token_generator(), media_type="text/plain")
 
-@router.get("/interviewer", response_class=HTMLResponse, summary="面试官状态页面")
-async def interviewer_page(request: Request):
-    """面试官状态页面：展示方向、简介与当前可预约状态"""
+@router.get("/doctor", response_class=HTMLResponse, summary="医生状态页面")
+async def doctor_page(request: Request):
+    """医生状态页面：展示科室、简介与当前可预约状态"""
     try:
-        from api.interviewer import list_interviewers
+        from api.doctor import list_doctors
 
-        interviewers = await list_interviewers()
+        doctors = await list_doctors()
 
-        return templates.TemplateResponse(request, "interviewer.html", {
-            "interviewers": interviewers
+        return templates.TemplateResponse(request, "doctor.html", {
+            "doctors": doctors
         })
     except Exception as e:
-        logger.error(f"加载面试官数据失败: {str(e)}")
-        return templates.TemplateResponse(request, "interviewer.html", {
-            "interviewers": [],
+        logger.error(f"加载医生数据失败: {str(e)}")
+        return templates.TemplateResponse(request, "doctor.html", {
+            "doctors": [],
             "error": str(e)
         })
 
-@router.get("/interviewer_schedule", response_class=HTMLResponse, summary="面试官今日日程页面")
-async def interviewer_schedule_page(request: Request):
-    """面试官今日日程页面：展示每位面试官当天的忙碌时段"""
+@router.get("/doctor_schedule", response_class=HTMLResponse, summary="医生今日日程页面")
+async def doctor_schedule_page(request: Request):
+    """医生今日日程页面：展示每位医生当天的忙碌时段"""
     try:
-        from api.interviewer import list_interviewers_schedule_today
+        from api.doctor import list_doctors_schedule_today
         from config.time_config import time_config
 
         # 获取当前日期
         current_date = time_config.current_date_str()
 
-        # 通过API层获取所有面试官今日的忙碌时段
-        schedules_data = await list_interviewers_schedule_today()
+        # 通过API层获取所有医生今日的忙碌时段
+        schedules_data = await list_doctors_schedule_today()
 
         work_start_hour = 9
         work_end_hour = 18
 
         # 转换模板需要的结构：id / name / department / busy_periods / utilization
         # API 返回的是 Pydantic 模型，用 model_dump 转成普通 dict，
-        # 模板里就能直接按 period.start / period.round 取值并做字符串切分
+        # 模板里就能直接按 period.start / period.visit_type 取值并做字符串切分
         schedule = []
         for schedule_item in schedules_data:
             item = schedule_item.model_dump()
             busy_periods = item["busy_periods"]
             schedule.append({
-                "id": item["interviewer_id"],
-                "name": item["interviewer_name"],
-                "department": item.get("department") or "未分配方向",
+                "id": item["doctor_id"],
+                "name": item["doctor_name"],
+                "department": item.get("department") or "未分配科室",
                 "busy_periods": busy_periods,
-                # 负载率借用排班/产能领域的方法：只统计标准面试时段内的占用，
+                # 负载率借用排班/产能领域的方法：只统计标准就诊时段内的占用，
                 # 让前台一眼看出「谁今天排满了、还能往谁那里加人」
                 "utilization": _utilization_percent(busy_periods, work_start_hour, work_end_hour)
             })
 
-        return templates.TemplateResponse(request, "interviewer_schedule.html", {
+        return templates.TemplateResponse(request, "doctor_schedule.html", {
             "schedule": schedule,
             "current_date": current_date,
             "work_start_hour": work_start_hour,
             "work_end_hour": work_end_hour
         })
     except Exception as e:
-        logger.error(f"加载面试官日程数据失败: {str(e)}")
-        return templates.TemplateResponse(request, "interviewer_schedule.html", {
+        logger.error(f"加载医生日程数据失败: {str(e)}")
+        return templates.TemplateResponse(request, "doctor_schedule.html", {
             "schedule": [],
             "error": str(e),
             "work_start_hour": 9,
             "work_end_hour": 18
         })
 
-@router.get("/candidate_analysis", response_class=HTMLResponse, summary="候选人偏好分析页面")
-async def candidate_analysis_page(request: Request):
-    """候选人偏好分析页面（数据由页面内脚本调用 API 获取）"""
-    return templates.TemplateResponse(request, "candidate_analysis.html")
+@router.get("/patient_analysis", response_class=HTMLResponse, summary="患者偏好分析页面")
+async def patient_analysis_page(request: Request):
+    """患者偏好分析页面（数据由页面内脚本调用 API 获取）"""
+    return templates.TemplateResponse(request, "patient_analysis.html")
 
 @router.get("/knowledge", response_class=HTMLResponse, summary="知识库管理页面")
 async def knowledge_page(request: Request):
@@ -194,7 +194,7 @@ async def _collect_statistics():
     """
     汇总管理页统计数据
 
-    知识库与面试官/面试分别独立取数，任一失败只让对应字段为 0，
+    知识库与医生/就诊分别独立取数，任一失败只让对应字段为 0，
     不让统计页整体不可用。
     """
     from api.knowledge import get_all_knowledge
@@ -202,11 +202,11 @@ async def _collect_statistics():
     stats = {
         "knowledge_documents": 0,
         "categories": 0,
-        "interviewers": 0,
+        "doctors": 0,
         "departments": 0,
-        "interviews": 0,
-        "interviews_today": 0,
-        "cancelled_interviews": 0,
+        "appointments": 0,
+        "appointments_today": 0,
+        "cancelled_appointments": 0,
     }
 
     # 知识库
@@ -217,56 +217,56 @@ async def _collect_statistics():
     except Exception as e:
         logger.error(f"统计知识库数据失败: {str(e)}")
 
-    # 面试官
+    # 医生
     try:
-        from api.interviewer import list_interviewers
+        from api.doctor import list_doctors
 
-        interviewers = await list_interviewers()
-        stats["interviewers"] = len(interviewers)
-        stats["departments"] = len({item.department for item in interviewers if item.department})
+        doctors = await list_doctors()
+        stats["doctors"] = len(doctors)
+        stats["departments"] = len({item.department for item in doctors if item.department})
     except Exception as e:
-        logger.error(f"统计面试官数据失败: {str(e)}")
+        logger.error(f"统计医生数据失败: {str(e)}")
 
-    # 面试记录
+    # 预约记录
     try:
-        from api.interview import list_interviews
+        from api.appointment import list_appointments
         from config.time_config import time_config
 
-        interviews = await list_interviews()
-        stats["interviews"] = len(interviews)
-        stats["cancelled_interviews"] = len([item for item in interviews if item.status == "cancelled"])
+        appointments = await list_appointments()
+        stats["appointments"] = len(appointments)
+        stats["cancelled_appointments"] = len([item for item in appointments if item.status == "cancelled"])
 
         today_prefix = time_config.now().strftime("%Y-%m-%d")
-        stats["interviews_today"] = len(
-            [item for item in interviews if item.start_time.startswith(today_prefix)]
+        stats["appointments_today"] = len(
+            [item for item in appointments if item.start_time.startswith(today_prefix)]
         )
     except Exception as e:
-        logger.error(f"统计面试记录失败: {str(e)}")
+        logger.error(f"统计预约记录失败: {str(e)}")
 
     return stats
 
 @router.get("/admin", response_class=HTMLResponse, summary="系统管理页面")
 async def admin_dashboard(request: Request):
-    """系统管理仪表板：知识库、面试官与面试记录概览"""
+    """系统管理仪表板：知识库、医生与预约记录概览"""
     try:
-        from api.interview import list_interviews
-        from api.interviewer import list_interviewers
+        from api.appointment import list_appointments
+        from api.doctor import list_doctors
 
         stats = await _collect_statistics()
-        interviewers = await list_interviewers()
-        recent_interviews = await list_interviews()
+        doctors = await list_doctors()
+        recent_appointments = await list_appointments()
 
         return templates.TemplateResponse(request, "admin_dashboard.html", {
             "stats": stats,
-            "interviewers": interviewers[:5],  # 只显示前5位面试官
-            "recent_interviews": recent_interviews[:5]  # 最近5场面试
+            "doctors": doctors[:5],  # 只显示前5位医生
+            "recent_appointments": recent_appointments[:5]  # 最近5场就诊
         })
     except Exception as e:
         logger.error(f"加载系统管理数据失败: {str(e)}")
         return templates.TemplateResponse(request, "admin_dashboard.html", {
             "stats": {},
-            "interviewers": [],
-            "recent_interviews": [],
+            "doctors": [],
+            "recent_appointments": [],
             "error": str(e)
         })
 

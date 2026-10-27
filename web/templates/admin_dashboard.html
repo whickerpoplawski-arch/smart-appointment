@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>系统概览 - 面试预约助手</title>
+    <title>系统概览 - 就诊预约助手</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -184,7 +184,7 @@
     <div class="container">
         <div class="header">
             <h2><i class="fas fa-sliders-h"></i> 系统概览</h2>
-            <p>面试官、面试记录与面试知识库的运行状态</p>
+            <p>医生、预约记录与就诊须知库的运行状态</p>
         </div>
 
         <div class="content">
@@ -198,81 +198,81 @@
 
             <div class="stats">
                 <div class="stat-card">
-                    <div class="number">{{ stats.interviewers or 0 }}</div>
-                    <div class="label">面试官总数</div>
+                    <div class="number">{{ stats.doctors or 0 }}</div>
+                    <div class="label">医生总数</div>
                 </div>
                 <div class="stat-card alt">
                     <div class="number">{{ stats.departments or 0 }}</div>
-                    <div class="label">招聘方向数</div>
+                    <div class="label">科室数</div>
                 </div>
                 <div class="stat-card">
-                    <div class="number">{{ stats.interviews or 0 }}</div>
-                    <div class="label">面试预约总数</div>
+                    <div class="number">{{ stats.appointments or 0 }}</div>
+                    <div class="label">就诊预约总数</div>
                 </div>
                 <div class="stat-card alt">
-                    <div class="number">{{ stats.interviews_today or 0 }}</div>
-                    <div class="label">今日面试场次</div>
+                    <div class="number">{{ stats.appointments_today or 0 }}</div>
+                    <div class="label">今日就诊场次</div>
                 </div>
                 <div class="stat-card">
                     <div class="number">{{ stats.knowledge_documents or 0 }}</div>
-                    <div class="label">面试知识条数</div>
+                    <div class="label">就诊须知条数</div>
                 </div>
             </div>
 
             <div class="panel">
-                <h3><i class="fas fa-user-tie"></i> 面试官（前 5 位）</h3>
-                {% if interviewers and interviewers|length > 0 %}
+                <h3><i class="fas fa-user-tie"></i> 医生（前 5 位）</h3>
+                {% if doctors and doctors|length > 0 %}
                 <table>
                     <thead>
                         <tr>
                             <th>ID</th>
                             <th>姓名</th>
-                            <th>招聘方向</th>
+                            <th>科室</th>
                             <th>简介</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for interviewer in interviewers %}
+                        {% for doctor in doctors %}
                         <tr>
-                            <td><strong>{{ interviewer.id }}</strong></td>
-                            <td>{{ interviewer.name }}</td>
-                            <td><span class="badge">{{ interviewer.department or '未分配' }}</span></td>
-                            <td style="text-align: left;">{{ interviewer.bio or '暂无简介' }}</td>
+                            <td><strong>{{ doctor.id }}</strong></td>
+                            <td>{{ doctor.name }}</td>
+                            <td><span class="badge">{{ doctor.department or '未分配' }}</span></td>
+                            <td style="text-align: left;">{{ doctor.bio or '暂无简介' }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
                 {% else %}
-                <div class="empty">暂无面试官数据</div>
+                <div class="empty">暂无医生数据</div>
                 {% endif %}
             </div>
 
             <div class="panel">
-                <h3><i class="fas fa-calendar-check"></i> 最近面试记录</h3>
-                {% if recent_interviews and recent_interviews|length > 0 %}
+                <h3><i class="fas fa-calendar-check"></i> 最近预约记录</h3>
+                {% if recent_appointments and recent_appointments|length > 0 %}
                 <table>
                     <thead>
                         <tr>
-                            <th>候选人</th>
-                            <th>应聘岗位</th>
-                            <th>轮次</th>
-                            <th>形式</th>
-                            <th>面试官</th>
+                            <th>患者</th>
+                            <th>就诊科室</th>
+                            <th>就诊类型</th>
+                            <th>渠道</th>
+                            <th>医生</th>
                             <th>开始时间</th>
                             <th>状态</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for interview in recent_interviews %}
+                        {% for appointment in recent_appointments %}
                         <tr>
-                            <td>{{ interview.candidate_name }}</td>
-                            <td>{{ interview.position }}</td>
-                            <td>{{ interview.round }}</td>
-                            <td>{{ interview.mode }}</td>
-                            <td>{{ interview.interviewer_name or '待定' }}</td>
-                            <td>{{ interview.start_time }}</td>
+                            <td>{{ appointment.patient_name }}</td>
+                            <td>{{ appointment.specialty }}</td>
+                            <td>{{ appointment.visit_type }}</td>
+                            <td>{{ appointment.channel }}</td>
+                            <td>{{ appointment.doctor_name or '待定' }}</td>
+                            <td>{{ appointment.start_time }}</td>
                             <td>
-                                {% if interview.status == 'cancelled' %}
+                                {% if appointment.status == 'cancelled' %}
                                 <span class="badge busy">已取消</span>
                                 {% else %}
                                 <span class="badge">已预约</span>
@@ -283,7 +283,7 @@
                     </tbody>
                 </table>
                 {% else %}
-                <div class="empty">暂无面试记录，先在聊天页预约一场面试</div>
+                <div class="empty">暂无预约记录，先在聊天页预约一场就诊</div>
                 {% endif %}
             </div>
 
@@ -299,5 +299,6 @@
             </div>
         </div>
     </div>
+    {% include "_disclaimer.html" %}
 </body>
 </html>

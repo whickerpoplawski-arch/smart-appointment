@@ -15,7 +15,7 @@ class SessionManager:
     3. 处理事务和异常回滚
     """
 
-    def __init__(self, db_path='sqlite:///data/interview_agent.db'):
+    def __init__(self, db_path='sqlite:///data/doctor_appointment.db'):
         """
         初始化会话管理器
 
@@ -31,7 +31,7 @@ class SessionManager:
 
         self.engine = create_engine(db_path)
 
-        # SQLite 默认不校验外键，显式打开以保证删除面试官等操作受约束保护
+        # SQLite 默认不校验外键，显式打开以保证删除医生等操作受约束保护
         if self.engine.dialect.name == 'sqlite':
             @event.listens_for(self.engine, "connect")
             def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
