@@ -4,11 +4,22 @@
 负责构建就诊预约各个环节的响应消息
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
+
+def slot_is_blank(value: Any) -> bool:
+    """空白、未知、null 都不算已收集的槽位。"""
+    if value is None:
+        return True
+    text = str(value).strip()
+    return text == "" or text == "未知" or text.lower() == "null"
 
 
 class MessageBuilder:
     """消息构建器"""
+
+    ASK_SLOT_ORDER = ("specialty", "patient_name", "visit_type", "start_time")
+    ASK_WHEN_COMPLETE = "请确认是否按已记下的姓名、科室、就诊类型和时间预约。"
 
     def __init__(self):
         self.missing_info_prompts = {
@@ -19,6 +30,35 @@ class MessageBuilder:
             "duration": "请问就诊预计需要多长时间？未说明时我会按就诊类型设置默认时长。",
             "channel": "请问是门诊还是互联网医院？未说明时按门诊。"
         }
+
+    @classmethod
+    def question_for(cls, field: str) -> str:
+        """缺槽追问的唯一句子。"""
+        return cls().missing_info_prompts[field]
+
+    @classmethod
+    def first_missing_slot(cls, history: Optional[Dict[str, Any]]) -> Optional[str]:
+        """科室优先，其次姓名、就诊类型、开始时间。"""
+        history = history or {}
+        for field in cls.ASK_SLOT_ORDER:
+            if slot_is_blank(history.get(field)):
+                return field
+        return None
+
+    @classmethod
+    def ask_one(cls, history: Optional[Dict[str, Any]]) -> str:
+        """只问最缺的一槽；四槽都在时请患者确认，不用空泛补信息句。"""
+        field = cls.first_missing_slot(history)
+        if field is None:
+            return cls.ASK_WHEN_COMPLETE
+        return cls.question_for(field)
+
+    @staticmethod
+    def specialty_menu_question() -> str:
+        """只列出科室名，不按症状推荐科室。"""
+        from services.appointment_service import DEPARTMENT_CHOICES
+        names = "、".join(DEPARTMENT_CHOICES)
+        return f"请先选择科室：{names}。"
 
     def create_appointment_success_message(self, doctor: Dict[str, Any],
                                          appointment_history: Dict[str, Any]) -> str:

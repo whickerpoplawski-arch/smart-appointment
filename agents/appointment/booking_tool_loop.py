@@ -10,8 +10,8 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, Union
 
-from services.appointment_service import DEPARTMENT_CHOICES
 from agents.appointment.appointment_processor import AppointmentProcessor
+from agents.appointment.message_builder import MessageBuilder
 from agents.appointment.doctor_tools import (
     FIND_DOCTOR_SCHEMA,
     TOOL_ARGUMENT_KEYS,
@@ -83,13 +83,28 @@ def default_duration_for_find(history: Dict[str, Any], arguments: Optional[Dict[
     return AppointmentProcessor.resolve_duration(history.get("visit_type"), stated)
 
 
+def prepare_find_arguments(history: Dict[str, Any], arguments: Any) -> Any:
+    """Null or the visit-type default is injected later as default_duration.
+
+    复诊 15 and 咨询 20 stay out of the [30, 480] argument check. An explicit
+    duration such as 45 is left untouched. 10 and 600 still fail validation.
+    """
+    if not isinstance(arguments, dict):
+        return arguments
+    prepared = dict(arguments)
+    raw = prepared.get("duration_minutes")
+    visit_default = AppointmentProcessor.resolve_duration(history.get("visit_type"), None)
+    if raw is None or raw == visit_default:
+        prepared["duration_minutes"] = None
+    return prepared
+
+
 def question_blocking_finish(history: Dict[str, Any]) -> Optional[str]:
-    """finish 需要姓名和就诊类型。缺了就追问，不落库。"""
-    if _is_blank(history.get("patient_name")):
-        return "请问患者的姓名是？"
-    if _is_blank(history.get("visit_type")):
-        return "请问是初诊、复诊还是咨询？"
-    return None
+    """finish 需要姓名、就诊类型、科室和开始时间。缺一槽就问那一句，不落库。"""
+    field = MessageBuilder.first_missing_slot(history)
+    if field is None:
+        return None
+    return MessageBuilder.question_for(field)
 
 
 def ensure_specialty_question(message: Any, history: Dict[str, Any]) -> str:
@@ -171,8 +186,7 @@ def reply_for_observation(observation: Dict[str, Any]) -> str:
     if status == "invalid_time":
         return "[REPLY][预约助手]就诊时间没能识别，请给一个具体的开始时间。"
     if status == "no_match" and observation.get("needs_specialty"):
-        names = "、".join(DEPARTMENT_CHOICES)
-        return f"[REPLY][预约助手]请先选择科室：{names}。"
+        return f"[REPLY][预约助手]{MessageBuilder.specialty_menu_question()}"
     if status == "no_match":
         return "[REPLY][预约助手]这个时段没有空闲医生。"
     return "[REPLY][预约助手]请补充预约需要的信息。"
@@ -236,7 +250,7 @@ class BookingToolLoop:
                 yield await self._finish_or_ask(history, self.last_observation)
                 return
 
-            arguments = action.get("arguments")
+            arguments = prepare_find_arguments(history, action.get("arguments"))
             if not _schema_keys_aligned() or _validate_arguments(arguments):
                 invalid_streak += 1
                 logger.info("工具环拒绝非法参数，连续第 %s 次", invalid_streak)
@@ -268,12 +282,12 @@ class BookingToolLoop:
             yield reply_for_ask("请从给出的两个时段里选一个，回复 1 或 2。")
             return
 
-        arguments = {
+        arguments = prepare_find_arguments(history, {
             "specialty": history.get("specialty"),
             "start_time": chosen["start_time"],
             "duration_minutes": chosen["duration_minutes"],
             "doctor_name": history.get("doctor_name"),
-        }
+        })
         if _validate_arguments(arguments):
             yield reply_for_ask("选定的时段还不能查询，请换一个说法。")
             return

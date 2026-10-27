@@ -55,6 +55,14 @@ class TestArgumentValidation:
         assert result["status"] == "invalid_arguments"
         assert "480" in result["reason"]
 
+    def test_should_reject_duration_below_floor(self):
+        finder = make_finder()
+
+        result = find_doctor(args(duration_minutes=10), finder)
+
+        assert result["status"] == "invalid_arguments"
+        assert "30" in result["reason"]
+
     def test_should_reject_null_start_time(self):
         finder = make_finder()
 
