@@ -2,8 +2,8 @@
 面试官查询工具（Agent 工具层）
 
 把"查某人在某时段是否有空"与"找同方向可替代者"两个查询收敛成**一个**工具
-`find_interviewer`，让调用方（当前是 InterviewProcessor，后训练后是 Planner 小模型）
-只需面对一个签名与一套四态结果。
+`find_interviewer`。当前调用方是预约工具环和 InterviewProcessor，
+它们面对同一个参数合同和同一套状态结果。
 
 职责边界：
 - 工具只做「查库 + 计算」，不做任何话术生成、不写会话状态

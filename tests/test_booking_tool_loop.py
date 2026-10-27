@@ -12,7 +12,8 @@ from agents.interview.booking_tool_loop import (
     policy_next_action,
     run_with_fallback,
 )
-from agents.interview_agent import InterviewAgent
+from agents.interview_agent import MAX_TURNS, InterviewAgent
+from agents.session_registry import SessionRegistry
 
 
 VALID_ARGS = {
@@ -173,3 +174,50 @@ class TestToolLoopFallback:
 
         assert agent.interview_history["candidate_name"] == "张三"
         assert any("[REPLY]" in token for token in tokens)
+
+
+class TestTurnBudget:
+    @pytest.mark.asyncio
+    async def test_should_stop_at_max_turns_and_report_slots(self):
+        ask = json.dumps({"action": "ask_user", "message": "继续"}, ensure_ascii=False)
+        agent = InterviewAgent(
+            llm=FakeListChatModel(responses=[ask] * (MAX_TURNS + 2)),
+            session_id="turns",
+            timeout_seconds=1,
+        )
+        agent.interview_history["candidate_name"] = "张三"
+        agent.interview_history["position"] = "后端"
+
+        for _ in range(MAX_TURNS - 1):
+            tokens = await collect(agent.run_stream("继续说"))
+            assert "继续" in "".join(tokens)
+            assert "上限" not in "".join(tokens)
+
+        limited = "".join(await collect(agent.run_stream("再来一次")))
+        again = "".join(await collect(agent.run_stream("还来")))
+
+        assert "上限" in limited
+        assert "张三" in limited
+        assert "后端" in limited
+        assert "继续" not in limited
+        assert "上限" in again
+
+    @pytest.mark.asyncio
+    async def test_turn_budget_is_per_session(self):
+        ask = json.dumps({"action": "ask_user", "message": "继续"}, ensure_ascii=False)
+        registry = SessionRegistry(enable_snapshots=False)
+        agent = InterviewAgent(
+            llm=FakeListChatModel(responses=[ask] * 20),
+            session_id="boot",
+            timeout_seconds=1,
+        )
+        agent.bind_session(registry.get("session-a"))
+        for _ in range(MAX_TURNS - 1):
+            await collect(agent.run_stream("a"))
+
+        agent.bind_session(registry.get("session-b"))
+        tokens = "".join(await collect(agent.run_stream("b")))
+
+        assert "继续" in tokens
+        assert registry.get("session-a").turn_count == MAX_TURNS - 1
+        assert registry.get("session-b").turn_count == 1

@@ -8,8 +8,11 @@
 4. 提供统一的Agent调用接口
 """
 
+import logging
 from typing import Any, AsyncGenerator
 from .state_manager import StateManager
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRouter:
@@ -56,8 +59,7 @@ class AgentRouter:
         # 转换状态
         self.state_manager.transition_to_interview()
 
-        # 生成思考提示
-        yield "[THOUGHT][归类机器人] 归类机器人：我发现这是一个预约面试任务，我将转给面试预约机器人处理。"
+        logger.info("归类机器人：这是预约面试任务，转给面试预约机器人")
 
         # 调用面试预约Agent
         try:
@@ -84,8 +86,7 @@ class AgentRouter:
         # 转换状态
         self.state_manager.transition_to_consultation()
 
-        # 生成思考提示
-        yield "[THOUGHT][归类机器人] 归类机器人：我发现这是一个咨询任务，我将转给咨询机器人处理。"
+        logger.info("归类机器人：这是咨询任务，转给咨询机器人")
 
         # 调用咨询Agent
         try:

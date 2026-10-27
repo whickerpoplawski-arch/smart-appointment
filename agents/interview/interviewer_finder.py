@@ -6,9 +6,12 @@
 2. 未指定面试官时，按「岗位方向 + 该时段空闲」筛选，偏好仅用于排序
 """
 
+import logging
+import re
 from typing import Optional, Dict, Any, Callable, List
 from datetime import datetime, timedelta
-import re
+
+logger = logging.getLogger(__name__)
 
 
 # 中文数字在时长里的常用写法
@@ -173,8 +176,7 @@ class InterviewerFinder:
             ordered.extend(item for item in candidates if item.get('id') not in ordered_ids)
             return ordered
         except Exception as e:
-            if yield_func:
-                yield_func(f"[THOUGHT][面试机器人] 简介相似度排序不可用（{e}），按默认顺序查找\n")
+            logger.info("简介相似度排序不可用（%s），按默认顺序查找", e)
             return candidates
 
     @staticmethod
@@ -286,11 +288,10 @@ class InterviewerFinder:
         duration_str = interview_history.get("duration")
         interviewer_name = interview_history.get("interviewer_name")
 
-        if yield_func:
-            if interviewer_name and interviewer_name != "未知":
-                yield_func(f"[THOUGHT][面试机器人] 候选人指定了面试官：{interviewer_name}，正在查询其日程...\n")
-            else:
-                yield_func("[THOUGHT][面试机器人] 正在按岗位方向查找空闲面试官...\n")
+        if interviewer_name and interviewer_name != "未知":
+            logger.info("候选人指定了面试官：%s，正在查询其日程", interviewer_name)
+        else:
+            logger.info("正在按岗位方向查找空闲面试官")
 
         from agents.interview.interviewer_tools import find_interviewer
 
@@ -310,8 +311,7 @@ class InterviewerFinder:
 
         if status == "available":
             interviewer = result["interviewer"]
-            if yield_func:
-                yield_func(f"[THOUGHT][面试机器人] {interviewer['name']}在指定时间有空\n")
+            logger.info("%s在指定时间有空", interviewer["name"])
             payload = dict(interviewer)
             payload["status"] = "available"
             payload["requires_confirmation"] = False
@@ -321,13 +321,11 @@ class InterviewerFinder:
             original = result["requested_interviewer"]
             alternatives = result.get("alternatives") or []
             if not alternatives:
-                if yield_func:
-                    yield_func("[THOUGHT][面试机器人] 同方向下没有其他空闲面试官\n")
+                logger.info("同方向下没有其他空闲面试官")
                 return {"status": "conflict", "original_interviewer": original, "alternatives": []}
 
-            if yield_func:
-                names = "、".join(item["name"] for item in alternatives)
-                yield_func(f"[THOUGHT][面试机器人] {original['name']}该时段已有安排，同方向可约：{names}\n")
+            names = "、".join(item["name"] for item in alternatives)
+            logger.info("%s该时段已有安排，同方向可约：%s", original["name"], names)
             return {
                 "status": "recommendation",
                 "is_recommendation": True,
@@ -338,20 +336,17 @@ class InterviewerFinder:
             }
 
         if status == "not_found":
-            if yield_func:
-                yield_func(f"[THOUGHT][面试机器人] 未找到名为'{result['requested_interviewer_name']}'的面试官\n")
+            logger.info("未找到名为'%s'的面试官", result["requested_interviewer_name"])
             return {
                 "status": "interviewer_not_found",
                 "requested_interviewer": result["requested_interviewer_name"],
             }
 
         if status == "invalid_time" or status == "invalid_arguments":
-            if yield_func:
-                yield_func("[THOUGHT][面试机器人] 面试时间或时长信息不完整，无法检索面试官\n")
+            logger.info("面试时间或时长信息不完整，无法检索面试官")
             return {"status": "invalid_time"}
 
-        if yield_func:
-            yield_func("[THOUGHT][面试机器人] 没有找到空闲面试官\n")
+        logger.info("没有找到空闲面试官")
         return {"status": "no_available_interviewer", "department": result.get("department")}
 
     @staticmethod

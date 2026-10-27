@@ -51,13 +51,14 @@ class ConsultationProcessor:
         # 重置状态
         if shared_state:
             from config.constants import StateEnum
-            shared_state.value = StateEnum.CLASSIFY
-        
-        yield self.response_generator.create_unrelated_message()
-        
-        # 转给回调处理
+            from agents.task_classification.state_manager import StateManager
+            StateManager(shared_state).set_state(StateEnum.CLASSIFY)
+
+        self.response_generator.note_unrelated()
+
+        # 转给回调处理。深度 1：只走固定回复，不再重新分类。
         if unrelated_callback:
-            async for token in unrelated_callback(user_input):
+            async for token in unrelated_callback(user_input, depth=1):
                 yield token
     
     async def _record_consultation_behavior(self, user_input: str, knowledge_docs: list, session_id: str):

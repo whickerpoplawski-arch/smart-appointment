@@ -4,25 +4,14 @@
 负责协调整个面试预约流程：信息收集、面试官匹配、确认交互与落库
 """
 
-import os
-import asyncio
-import aiohttp
+import logging
 from typing import Dict, Any, AsyncGenerator, Optional
+
+logger = logging.getLogger(__name__)
 from .input_parser import InputParser
 from .interviewer_finder import InterviewerFinder, extract_duration_minutes
 from .message_builder import MessageBuilder
 from .interview_database import InterviewDatabase
-from langchain.tools import BaseTool
-from langchain_core.prompts import ChatPromptTemplate
-
-try:
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
-    WEATHER_AGENT_AVAILABLE = True
-except ImportError:
-    # langchain 版本不含经典 AgentExecutor 时，天气提示退化为模板文案，不阻断预约主流程
-    AgentExecutor = None
-    create_openai_tools_agent = None
-    WEATHER_AGENT_AVAILABLE = False
 
 
 # 各轮次未指定时长时的默认分钟数
@@ -54,59 +43,6 @@ HISTORY_FIELDS = [
 ]
 
 
-class WeatherMCPTool(BaseTool):
-    """Weather API 工具，用于线下面试的出行提醒"""
-
-    name: str = "get_current_weather"
-    description: str = "获取指定城市的当前天气信息"
-
-    def __init__(self):
-        super().__init__()
-        # 将 API key 和 URL 定义为类属性而不是实例属性
-        self._api_key = os.getenv("OPENWEATHER_API_KEY")
-        self._base_url = "https://api.openweathermap.org/data/2.5/weather"
-
-    async def _get_weather_data(self, city: str = "Beijing") -> str:
-        """异步获取天气数据"""
-        if not self._api_key:
-            return "北京今天天气晴朗，温度适宜，出行请注意防晒"
-
-        try:
-            params = {
-                "q": city,
-                "appid": self._api_key,
-                "units": "metric",
-                "lang": "zh_cn"
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self._base_url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-
-                        # 提取天气信息
-                        temp = data["main"]["temp"]
-                        feels_like = data["main"]["feels_like"]
-                        description = data["weather"][0]["description"]
-                        humidity = data["main"]["humidity"]
-                        wind_speed = data.get("wind", {}).get("speed", 0)
-
-                        return (f"北京当前天气：{description}，气温{temp}°C（体感{feels_like}°C），"
-                                f"湿度{humidity}%，风速{wind_speed}m/s")
-                    else:
-                        return "北京今天天气晴朗，温度适宜，出行请注意防晒"
-        except Exception:
-            return "北京今天天气宜人，温度适中，适合出行"
-
-    def _run(self, city: str = "Beijing") -> str:
-        """同步版本 - 不推荐使用"""
-        return asyncio.run(self._get_weather_data(city))
-
-    async def _arun(self, city: str = "Beijing") -> str:
-        """异步版本"""
-        return await self._get_weather_data(city)
-
-
 class InterviewProcessor:
     """面试预约处理器"""
 
@@ -117,27 +53,6 @@ class InterviewProcessor:
         self.message_builder = message_builder
         self.interview_database = interview_database
         self.llm = llm
-
-        # 初始化天气工具和 agent（不可用时不影响面试预约主流程）
-        self.agent_executor = None
-        if self.llm and WEATHER_AGENT_AVAILABLE:
-            try:
-                self.weather_tool = WeatherMCPTool()
-                self.tools = [self.weather_tool]
-
-                # 创建 agent prompt
-                self.agent_prompt = ChatPromptTemplate.from_messages([
-                    ("system", "你是一个智能面试预约助手，可以获取天气信息并生成线下面试的出行提示。"),
-                    ("human", "{input}"),
-                    ("placeholder", "{agent_scratchpad}"),
-                ])
-
-                # 创建 agent
-                self.weather_agent = create_openai_tools_agent(self.llm, self.tools, self.agent_prompt)
-                self.agent_executor = AgentExecutor(agent=self.weather_agent, tools=self.tools, verbose=True)
-            except Exception as e:
-                print(f"天气提醒 Agent 初始化失败，将使用模板文案: {e}")
-                self.agent_executor = None
 
     # ------------------------------------------------------------------
     # 字段归一化
@@ -267,7 +182,7 @@ class InterviewProcessor:
         if unrelated_callback:
             try:
                 yield "[REPLY][面试机器人]和面试预约信息无关，已交给归类机器人处理\n"
-                result = await unrelated_callback(user_input)
+                result = await unrelated_callback(user_input, depth=1)
                 if hasattr(result, '__aiter__'):
                     async for token in result:
                         yield token
@@ -354,7 +269,7 @@ class InterviewProcessor:
     async def _process_successful_interview(self, interviewer: Dict[str, Any],
                                             interview_history: Dict[str, Any],
                                             session_id: str) -> str:
-        """处理面试预约成功的情况，线下面试结合北京天气生成出行提醒"""
+        """处理面试预约成功的情况。线下面试的出行提醒写在成功文案里，不另起工具代理。"""
         minutes = self.resolve_duration(interview_history.get("round"),
                                         interview_history.get("duration"))
         start_time, end_time, _ = self.interviewer_finder.parse_time_and_duration(
@@ -375,29 +290,9 @@ class InterviewProcessor:
             return self.message_builder.create_save_failure_message(reason)
 
         interview_history['booking_failed'] = False
-        base_message = self.message_builder.create_interview_success_message(
+        return self.message_builder.create_interview_success_message(
             interviewer, interview_history
         )
-
-        # 线下面试才需要结合天气给出出行建议；线上和天气失败都不阻断预约成功
-        if interview_history.get('mode') == '线下' and self.llm and self.agent_executor:
-            prompt = (
-                "请获取北京今天的天气信息，然后结合天气为线下面试生成一段简短的出行提醒。"
-                f"候选人：{interview_history.get('candidate_name')}，"
-                f"岗位：{interview_history.get('position')}，"
-                f"面试官：{interviewer['name']}，"
-                f"时间：{interview_history.get('start_time')}。"
-                "请提醒合适的出行方式、着装与提前到场时间，不超过80字。"
-            )
-            try:
-                result = await self.agent_executor.ainvoke({"input": prompt})
-                agent_output = result.get("output", "")
-                if agent_output:
-                    return f"{base_message}\n{agent_output}\n"
-            except Exception as e:
-                print(f"Agent调用失败: {e}")
-
-        return base_message
 
     async def handle_incomplete_info(self, data: Dict[str, Any],
                                      interview_history: Optional[Dict[str, Any]] = None
@@ -416,6 +311,6 @@ class InterviewProcessor:
             if not value or value == "未知":
                 missing.append(field)
 
-        yield f"[THOUGHT][面试机器人]面试信息不完整，缺少：{', '.join(missing)}，我需要询问候选人补充这些信息"
+        logger.info("面试信息不完整，缺少：%s", ", ".join(missing))
         reply = self.message_builder.create_missing_info_questions(missing)
         yield f"[REPLY][面试机器人]{reply}"

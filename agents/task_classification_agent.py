@@ -90,23 +90,23 @@ class TaskClassificationAgent:
         async for token in self.classification_processor.process_task_stream(task):
             yield token
 
-    async def handle_unrelated(self, user_input):
-        """处理无关请求（同步版本）"""
-        # 与面试预约无关的请求应该重新进行分类，而不是直接拒绝
-        print(f"[DEBUG] 面试预约机器人转交的请求：{user_input}")
+    async def handle_unrelated(self, user_input, depth=1):
+        """处理无关请求。深度达到 1 后只给固定回复，不再进入分类流程。"""
+        if depth >= 1:
+            return await self.unrelated_handler.handle_unrelated_sync(user_input)
 
-        # 重新进行任务分类
         result = ""
         async for token in self.classification_processor.process_task_stream(user_input):
             result += token
         return result
 
-    async def handle_unrelated_async(self, user_input):
-        """处理无关请求（异步流版本）"""
-        # 与面试预约无关的请求应该重新进行分类，而不是直接拒绝
-        print(f"[DEBUG] 面试预约机器人转交的请求：{user_input}")
+    async def handle_unrelated_async(self, user_input, depth=1):
+        """处理无关请求（异步流版本）。深度达到 1 后不再进入分类流程。"""
+        if depth >= 1:
+            async for token in self.unrelated_handler.handle_unrelated_async(user_input):
+                yield token
+            return
 
-        # 重新进行任务分类
         async for token in self.classification_processor.process_task_stream(user_input):
             yield token
 

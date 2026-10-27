@@ -11,6 +11,9 @@ from .interview import (
 )
 from .interview.booking_tool_loop import BookingToolLoop, run_with_fallback
 from .session_registry import new_interview_history
+from .task_classification.state_manager import StateManager
+
+MAX_TURNS = 12
 
 load_dotenv()
 
@@ -127,6 +130,10 @@ class InterviewAgent:
         if user_input is None:
             user_input = input("候选人：")
 
+        if self._consume_turn() >= MAX_TURNS:
+            yield format_turn_limit(self.interview_history)
+            return
+
         async for token in run_with_fallback(
             self.tool_loop, self._legacy_stream, user_input, self.interview_history
         ):
@@ -154,9 +161,7 @@ class InterviewAgent:
             if data.get("unrelated", False) and not self.interview_history.get('awaiting_confirmation'):
                 # 这里不清空面试历史，保留候选人已输入的信息
                 # 只设置状态为CLASSIFY，让系统转交给其他机器人处理
-                if self.state:
-                    from config.constants import StateEnum
-                    self.state.value = StateEnum.CLASSIFY
+                self._return_to_classify()
 
                 async for token in self.interview_processor.handle_unrelated_request(
                     user_input, self.unrelated_callback, self.state
@@ -208,9 +213,41 @@ class InterviewAgent:
             chunks.append(token)
         return "".join(chunks)
 
+    def _consume_turn(self) -> int:
+        record = getattr(self, "_session_record", None)
+        if record is not None:
+            record.turn_count += 1
+            return record.turn_count
+        self._turn_count += 1
+        return self._turn_count
+
+    def _return_to_classify(self):
+        if self.state is None:
+            return
+        from config.constants import StateEnum
+        StateManager(self.state).set_state(StateEnum.CLASSIFY)
+
     def _reset_state_after_interview(self):
         """面试预约完成后重置状态"""
         self.reset()
-        if self.state:
-            from config.constants import StateEnum
-            self.state.value = StateEnum.CLASSIFY
+        self._return_to_classify()
+
+
+def format_turn_limit(history) -> str:
+    """回合用尽时只汇报已经记下的槽位。"""
+    labels = (
+        ("candidate_name", "姓名"),
+        ("position", "岗位"),
+        ("round", "轮次"),
+        ("mode", "形式"),
+        ("start_time", "时间"),
+        ("duration", "时长"),
+        ("interviewer_name", "面试官"),
+    )
+    parts = []
+    for key, label in labels:
+        value = (history or {}).get(key)
+        if value and value != "未知":
+            parts.append(f"{label}{value}")
+    collected = "、".join(parts) if parts else "还没有记下槽位"
+    return f"[REPLY][面试机器人]对话已到{MAX_TURNS}轮上限。已收集：{collected}。先停在这里。"
