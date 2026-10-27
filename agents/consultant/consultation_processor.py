@@ -5,7 +5,7 @@
 """
 
 from typing import AsyncGenerator, Optional
-from config.constants import DEMO_DISCLAIMER
+from config.constants import DEMO_DISCLAIMER, SPECIALTY_CHOICE_LIMIT
 from .knowledge_retriever import KnowledgeRetriever
 from .consultation_classifier import ConsultationClassifier
 from .response_generator import ResponseGenerator
@@ -21,7 +21,7 @@ def medical_advice_refusal(user_input: str) -> Optional[str]:
     return (
         "[REPLY][咨询机器人]"
         + DEMO_DISCLAIMER
-        + "我不能判断症状或开具用药。请先选择科室，我可以帮您预约医生档期。"
+        + SPECIALTY_CHOICE_LIMIT
     )
 
 

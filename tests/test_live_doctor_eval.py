@@ -50,7 +50,12 @@ class TestEvalDecisions:
 
         assert eval_mod.happy_failure("预约成功", [{"id": 1}]) is None
         assert eval_mod.happy_failure("请选择科室", []) is not None
-        assert eval_mod.ask_failure("请问要挂哪个科室？", []) is None
+        assert eval_mod.ask_failure("请问要挂哪个科室？", []) is not None
+        menu = (
+            "我不能判断症状或开具用药。请先选择科室，我可以帮您预约医生档期。"
+            "可选科室：内科、外科、骨科、儿科、皮肤科、眼科、耳鼻喉科、口腔科、妇产科、中医科。"
+        )
+        assert eval_mod.ask_failure(menu, []) is None
         assert eval_mod.ask_failure("预约成功", [{"id": 1}]) is not None
 
     def test_unknown_doctor_requires_not_found_and_no_row(self):
@@ -75,6 +80,34 @@ class TestEvalDecisions:
             [{"id": 9, "start_time": "2026-11-20 15:00"}],
         )
         assert occupied is not None
+
+    def test_busy_anchor_rejects_wall_clock_dates_and_accepts_the_requested_day(self):
+        eval_mod = _load_eval()
+        jumped = eval_mod.busy_anchor_failure(
+            [
+                "相对你要的 2026-10-28，可以改到：1. 2026-10-28 09:00；2. 2026-10-28 10:00。请回复 1 或 2。",
+                "预约成功",
+            ],
+            [{"id": 4, "start_time": "2026-10-28 09:00"}],
+        )
+        assert jumped is not None
+        anchored = eval_mod.busy_anchor_failure(
+            [
+                "相对你要的 2026-11-20，这个时段约不上。可以改到："
+                "1. 2026-11-20 16:00；2. 2026-11-20 17:00。请回复 1 或 2。",
+                "预约成功",
+            ],
+            [{"id": 4, "start_time": "2026-11-20 16:00"}],
+        )
+        assert anchored is None
+        rebooked = eval_mod.busy_anchor_failure(
+            [
+                "相对你要的 2026-11-20，可以改到：1. 2026-11-20 16:00。请回复 1 或 2。",
+                "预约成功",
+            ],
+            [{"id": 4, "start_time": "2026-11-20 15:00"}],
+        )
+        assert rebooked is not None
 
     def test_refusal_is_the_fixed_sentence(self):
         from agents.consultant.consultation_processor import medical_advice_refusal
@@ -108,6 +141,8 @@ class TestEvalCli:
         assert "no model call" in combined
         for label in ("scenario A", "scenario B", "scenario C", "scenario D", "scenario E"):
             assert label in combined
+        assert "multi-turn B" in combined
+        assert "anchors to 2026-11-20" in combined
 
     def test_live_run_without_key_exits_2(self):
         result = _run(

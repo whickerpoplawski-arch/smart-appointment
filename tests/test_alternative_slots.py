@@ -7,7 +7,7 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from agents.appointment.alternative_slots import search_alternative_slots, slots_for_history
-from agents.appointment.booking_tool_loop import BookingToolLoop, policy_next_action
+from agents.appointment.booking_tool_loop import BookingToolLoop, policy_next_action, reply_for_slots
 from agents.appointment.appointment_processor import DEFAULT_DURATION_BY_VISIT
 
 
@@ -93,6 +93,120 @@ class TestSlotScan:
         assert spans[0][1] - spans[0][0] == timedelta(minutes=30)
         assert spans[0][2] == "内科"
 
+    def test_should_anchor_later_same_day_slots_to_the_requested_start(self):
+        class Service:
+            def get_doctor_by_name(self, name):
+                return None
+
+            def match_department(self, specialty):
+                return "内科"
+
+            def get_available_doctors(self, start, end, department=None):
+                return [{"id": 1}]
+
+            def is_doctor_available(self, doctor_id, start, end):
+                return False
+
+        class Finder:
+            appointment_service = Service()
+
+        options = slots_for_history(
+            Finder(),
+            {
+                "visit_type": "初诊",
+                "specialty": "内科",
+                "doctor_name": None,
+                "start_time": "2026-11-20 15:00",
+            },
+            now=datetime(2026, 10, 27, 9, 0),
+        )
+
+        assert [item["start_time"] for item in options] == [
+            "2026-11-20 16:00",
+            "2026-11-20 17:00",
+        ]
+
+    def test_should_move_to_the_next_business_day_when_same_day_is_full(self):
+        class Service:
+            def get_doctor_by_name(self, name):
+                return {"id": 7, "name": name}
+
+            def match_department(self, specialty):
+                return "内科"
+
+            def get_available_doctors(self, start, end, department=None):
+                return []
+
+            def is_doctor_available(self, doctor_id, start, end):
+                return start.strftime("%Y-%m-%d %H:%M") not in {
+                    "2026-11-20 15:00",
+                    "2026-11-20 16:00",
+                    "2026-11-20 17:00",
+                }
+
+        class Finder:
+            appointment_service = Service()
+
+        options = slots_for_history(
+            Finder(),
+            {
+                "visit_type": "初诊",
+                "specialty": "内科",
+                "doctor_name": "陈安",
+                "start_time": "2026-11-20 15:00",
+            },
+            now=datetime(2026, 10, 28, 8, 0),
+        )
+
+        assert [item["start_time"] for item in options] == [
+            "2026-11-23 09:00",
+            "2026-11-23 10:00",
+        ]
+
+    def test_should_keep_wall_clock_when_the_requested_start_cannot_be_parsed(self):
+        class Service:
+            def get_doctor_by_name(self, name):
+                return None
+
+            def match_department(self, specialty):
+                return "内科"
+
+            def get_available_doctors(self, start, end, department=None):
+                return [{"id": 1}]
+
+            def is_doctor_available(self, doctor_id, start, end):
+                return False
+
+        class Finder:
+            appointment_service = Service()
+
+        options = slots_for_history(
+            Finder(),
+            {"visit_type": "初诊", "specialty": "内科", "start_time": "明天下午"},
+            now=datetime(2026, 10, 27, 15, 30),
+        )
+
+        assert [item["start_time"] for item in options] == [
+            "2026-10-27 16:00",
+            "2026-10-27 17:00",
+        ]
+
+
+class TestSlotCopy:
+    def test_should_name_the_requested_date_and_omit_the_busy_slot(self):
+        text = reply_for_slots(
+            [
+                {"start_time": "2026-11-20 16:00", "label": "2026-11-20 16:00"},
+                {"start_time": "2026-11-20 17:00", "label": "2026-11-20 17:00"},
+            ],
+            requested_start="2026-11-20 15:00",
+        )
+
+        assert "相对你要的 2026-11-20" in text
+        assert "1. 2026-11-20 16:00" in text
+        assert "2026-11-20 15:00" not in text
+        assert "请回复 1 或 2" in text
+
 
 class TestReplanPolicy:
     def test_should_replan_when_nobody_is_free(self):
@@ -143,6 +257,7 @@ class TestReplanLoop:
         assert loop.last_observation["alternative_slots"] == offered
         assert history["awaiting_slot_choice"] is True
         assert "2026-10-28 10:00" in "".join(first)
+        assert "相对你要的 2026-10-27" in "".join(first)
         assert len(finder.calls) == 1
 
         second = [token async for token in loop.run("1", history)]

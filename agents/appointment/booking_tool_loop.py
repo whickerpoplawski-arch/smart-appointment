@@ -312,7 +312,7 @@ class BookingToolLoop:
             self.last_observation = observation
             history["pending_alternative_slots"] = options
             history["awaiting_slot_choice"] = bool(options)
-            yield reply_for_slots(options)
+            yield reply_for_slots(options, history.get("start_time"))
             return
         if next_action == "finish" or (next_action == "search_alternative_slots" and not allow_replan and observation.get("status") == "available"):
             yield await self._finish_or_ask(history, observation)
@@ -409,11 +409,21 @@ def match_slot_choice(user_input: str, options: list) -> Optional[Dict[str, Any]
     return None
 
 
-def reply_for_slots(options: list) -> str:
+def reply_for_slots(options: list, requested_start: Optional[str] = None) -> str:
+    """改期选项。能解析请求日时写明「相对你要的 YYYY-MM-DD」。"""
+    from agents.appointment.alternative_slots import requested_day_label
+
+    day = requested_day_label(requested_start)
+    anchor = f"相对你要的 {day}，" if day else ""
     if not options:
+        if day:
+            return (
+                f"[REPLY][预约助手]相对你要的 {day}，"
+                "未来两个工作日里没有找到可改的时段，请另给一个时间。"
+            )
         return "[REPLY][预约助手]未来两个工作日里没有找到可改的时段，请另给一个时间。"
     lines = [f"{index}. {item.get('label') or item.get('start_time')}" for index, item in enumerate(options[:2], start=1)]
-    return "[REPLY][预约助手]这个时段约不上。可以改到：" + "；".join(lines) + "。请回复 1 或 2。"
+    return "[REPLY][预约助手]" + anchor + "这个时段约不上。可以改到：" + "；".join(lines) + "。请回复 1 或 2。"
 
 
 async def run_with_fallback(tool_loop: BookingToolLoop, legacy, user_input: str,
