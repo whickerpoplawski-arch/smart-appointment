@@ -65,6 +65,24 @@ def merge_booking_slots(history: Dict[str, Any], data: Any) -> None:
         history[key] = text
 
 
+def fill_default_duration(history: Dict[str, Any]) -> None:
+    """Known visit type and a blank duration become 初诊30 / 复诊15 / 咨询20."""
+    if not _is_blank(history.get("duration")) or _is_blank(history.get("visit_type")):
+        return
+    minutes = AppointmentProcessor.resolve_duration(history.get("visit_type"), None)
+    if minutes:
+        history["duration"] = f"{minutes}分钟"
+
+
+def default_duration_for_find(history: Dict[str, Any], arguments: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Minutes passed into find_doctor when the model leaves duration_minutes null."""
+    arguments = arguments or {}
+    stated = history.get("duration")
+    if _is_blank(stated):
+        stated = arguments.get("duration_minutes")
+    return AppointmentProcessor.resolve_duration(history.get("visit_type"), stated)
+
+
 def question_blocking_finish(history: Dict[str, Any]) -> Optional[str]:
     """finish 需要姓名和就诊类型。缺了就追问，不落库。"""
     if _is_blank(history.get("patient_name")):
@@ -209,6 +227,7 @@ class BookingToolLoop:
 
             name = action["action"]
             merge_booking_slots(history, action.get("slots"))
+            fill_default_duration(history)
             if name == "ask_user":
                 yield reply_for_ask(ensure_specialty_question(action.get("message"), history))
                 return
@@ -223,7 +242,11 @@ class BookingToolLoop:
                 logger.info("工具环拒绝非法参数，连续第 %s 次", invalid_streak)
                 continue
 
-            observation = find_doctor(arguments, self.finder)
+            observation = find_doctor(
+                arguments,
+                self.finder,
+                default_duration=default_duration_for_find(history, arguments),
+            )
             self.last_observation = observation
             if observation.get("status") not in TOOL_STATUSES or observation.get("status") == "invalid_arguments":
                 invalid_streak += 1
@@ -255,7 +278,11 @@ class BookingToolLoop:
             yield reply_for_ask("选定的时段还不能查询，请换一个说法。")
             return
 
-        observation = find_doctor(arguments, self.finder)
+        observation = find_doctor(
+            arguments,
+            self.finder,
+            default_duration=default_duration_for_find(history, arguments),
+        )
         self.last_observation = observation
         history["awaiting_slot_choice"] = False
         history["pending_alternative_slots"] = []
@@ -308,6 +335,7 @@ class BookingToolLoop:
             logger.exception("槽位抽取失败，继续工具环")
             return
         merge_booking_slots(history, data)
+        fill_default_duration(history)
 
     async def _finish_or_ask(self, history: Dict[str, Any], observation: Optional[Dict[str, Any]]) -> str:
         question = question_blocking_finish(history)
@@ -338,6 +366,7 @@ class BookingToolLoop:
             "只说症状、没有科室时，用 find_doctor 且 specialty 为 null，"
             "或 ask_user 且 message 含「科室」。"
             "patient_name 或 visit_type 仍未知时不要 finish。"
+            "未说时长时 duration_minutes 用就诊类型默认：初诊30、复诊15、咨询20。"
             f"已知槽位：{json.dumps(history, ensure_ascii=False, default=str)}。"
             f"患者说：{user_input}"
         )

@@ -334,6 +334,38 @@ class TestSlotPersistence:
         assert captured["visit_type"] == "初诊"
         assert history["patient_name"] == "冒烟张三"
 
+    @pytest.mark.asyncio
+    async def test_null_duration_uses_first_visit_default_before_find(self):
+        """初诊 + 有效开始时间 + duration_minutes=null 不得因缺时长变成 invalid_time。"""
+        finder = StubFinder()
+        payload = action("find_doctor", arguments={
+            "specialty": "内科",
+            "start_time": "2026-11-20 15:00",
+            "duration_minutes": None,
+            "doctor_name": None,
+        })
+        history = {
+            "patient_name": "冒烟张三",
+            "specialty": "内科",
+            "visit_type": "初诊",
+            "channel": "门诊",
+            "start_time": "2026-11-20 15:00",
+        }
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[payload]),
+            finder,
+            on_finish=lambda observation, hist: "[REPLY][预约助手]预约成功",
+        )
+
+        tokens = "".join(await collect(loop.run("挂内科初诊", history)))
+
+        assert finder.calls, "find_doctor 应打到 finder"
+        assert finder.calls[0]["default_duration"] == 30
+        assert finder.calls[0]["start_time_str"] == "2026-11-20 15:00"
+        assert loop.last_observation["status"] == "available"
+        assert "就诊时间没能识别" not in tokens
+        assert history["duration"] == "30分钟"
+
 
 class TestTurnBudget:
     @pytest.mark.asyncio
