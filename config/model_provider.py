@@ -17,6 +17,8 @@ from langchain_openai import (
 )
 from pydantic import SecretStr
 
+from config.stream_collecting_chat_model import StreamCollectingChatOpenAI
+
 load_dotenv()
 
 
@@ -29,9 +31,28 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value if value not in (None, "") else default
 
 
+# Explicit opt-out. Unset / empty / any other value keeps stream collection on.
+_STREAM_COLLECTION_OFF = {"0", "false", "no", "off"}
+
+
 def get_model_provider() -> str:
     """Return configured provider, defaulting to Azure for backward compatibility."""
     return (_env("MODEL_PROVIDER", "azure") or "azure").strip().lower()
+
+
+def stream_collection_enabled() -> bool:
+    """Whether non-Azure chat models should collect a stream for invoke/ainvoke.
+
+    Durable default is on: some OpenAI-compatible gateways reject
+    non-streaming chat completions, and forgetting an env flag would break
+    every ``ainvoke`` call site. Set ``LLM_FORCE_STREAM=0`` (also
+    false/no/off) to use a plain ``ChatOpenAI`` that posts a non-streaming
+    completion. Azure is never wrapped, even when the variable is ``1``.
+    """
+    raw = os.getenv("LLM_FORCE_STREAM")
+    if raw is None or raw.strip() == "":
+        return True
+    return raw.strip().lower() not in _STREAM_COLLECTION_OFF
 
 
 def create_chat_model(temperature: float = 0):
@@ -45,6 +66,10 @@ def create_chat_model(temperature: float = 0):
     OpenAI-compatible env vars:
         MODEL_PROVIDER=qwen|deepseek|zhipu|openai|openai-compatible
         LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+
+    Non-Azure providers return ``StreamCollectingChatOpenAI`` so
+    ``invoke`` / ``ainvoke`` aggregate ``stream=true`` chunks (content and
+    tool calls). ``LLM_FORCE_STREAM=0`` opts out. Azure is unchanged.
     """
     provider = get_model_provider()
 
@@ -58,12 +83,15 @@ def create_chat_model(temperature: float = 0):
         )
 
     if provider in CHAT_PROVIDERS:
-        return ChatOpenAI(
-            model=_env("LLM_MODEL", "qwen-plus") or "qwen-plus",
-            api_key=SecretStr(_env("LLM_API_KEY", "") or ""),
-            base_url=_env("LLM_BASE_URL"),
-            temperature=temperature,
-        )
+        kwargs = {
+            "model": _env("LLM_MODEL", "qwen-plus") or "qwen-plus",
+            "api_key": SecretStr(_env("LLM_API_KEY", "") or ""),
+            "base_url": _env("LLM_BASE_URL"),
+            "temperature": temperature,
+        }
+        if stream_collection_enabled():
+            return StreamCollectingChatOpenAI(**kwargs)
+        return ChatOpenAI(**kwargs)
 
     raise ValueError(
         f"Unsupported MODEL_PROVIDER={provider!r}. "

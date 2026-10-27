@@ -167,6 +167,21 @@ LOG_LEVEL=INFO
 
 支持 OpenAI 兼容格式的聊天与 Embedding 服务，也支持 Azure OpenAI（`MODEL_PROVIDER=azure`）。
 
+非 Azure 的聊天模型默认是 `StreamCollectingChatOpenAI`：`invoke` / `ainvoke` 会把 `stream=true` 的分片收成一条消息（正文和工具调用）。只允许流式的兼容网关因此可以继续走现有的 `ainvoke` 调用点。`LLM_FORCE_STREAM=0`（或 `false` / `no` / `off`）退回原生非流式 `ChatOpenAI`。不设置或设为 `1` 都保持收集流式结果。Azure 不包这一层。
+
+对着真实网关跑一轮就诊预约冒烟（需要 `LLM_API_KEY`，脚本不会打印密钥）：
+
+```bash
+MODEL_PROVIDER=openai-compatible \
+LLM_BASE_URL=https://d1api.xin/v1 \
+LLM_MODEL=deepseek-v4.1-flash \
+LLM_API_KEY=your_llm_api_key_here \
+LLM_FORCE_STREAM=1 \
+python scripts/live_doctor_booking_smoke.py
+```
+
+`python scripts/live_doctor_booking_smoke.py --help` 和 `--dry-run` 不调用模型，也不要求密钥。实跑走 `AppointmentAgent` 的工具环：一条是内科初诊落库，一条是只说症状、必须追问科室且不能落库。
+
 ### 4. 启动服务
 
 ```bash
