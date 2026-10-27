@@ -30,7 +30,7 @@ def _model(**overrides) -> StreamCollectingChatOpenAI:
 def _content_chunks() -> list[ChatGenerationChunk]:
     return [
         ChatGenerationChunk(message=AIMessageChunk(content="已为")),
-        ChatGenerationChunk(message=AIMessageChunk(content="张三预约一面")),
+        ChatGenerationChunk(message=AIMessageChunk(content="患者预约内科初诊")),
     ]
 
 
@@ -147,10 +147,10 @@ class TestStreamCollection:
         _install_chunks(model, _content_chunks())
         _forbid_non_stream(model)
 
-        message = await model.ainvoke("帮张三预约一面")
+        message = await model.ainvoke("帮我挂内科初诊")
 
         assert isinstance(message, AIMessage)
-        assert message.content == "已为张三预约一面"
+        assert message.content == "已为患者预约内科初诊"
 
     def test_invoke_joins_content_chunks_into_one_message(self):
         model = _model()
@@ -158,10 +158,10 @@ class TestStreamCollection:
         _install_chunks(model, _content_chunks())
         _forbid_non_stream(model)
 
-        message = model.invoke("帮张三预约一面")
+        message = model.invoke("帮我挂内科初诊")
 
         assert isinstance(message, AIMessage)
-        assert message.content == "已为张三预约一面"
+        assert message.content == "已为患者预约内科初诊"
 
     @pytest.mark.asyncio
     async def test_ainvoke_merges_tool_call_chunks(self):
@@ -186,9 +186,9 @@ class TestStreamCollection:
         model = _model()
         _install_chunks(model, _content_chunks())
 
-        contents = [chunk.content for chunk in model.stream("帮张三预约一面")]
+        contents = [chunk.content for chunk in model.stream("帮我挂内科初诊")]
 
-        assert contents == ["已为", "张三预约一面"]
+        assert contents == ["已为", "患者预约内科初诊"]
 
 
 def _provider_env(monkeypatch, provider: str, force_stream: str | None) -> None:

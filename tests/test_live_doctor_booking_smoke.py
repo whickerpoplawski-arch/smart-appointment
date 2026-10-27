@@ -1,4 +1,4 @@
-"""CLI contract for the live interview booking smoke. No network."""
+"""CLI contract for the live doctor booking smoke. No network."""
 
 import importlib.util
 import os
@@ -7,11 +7,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "live_interview_booking_smoke.py"
+SCRIPT = ROOT / "scripts" / "live_doctor_booking_smoke.py"
 
 
 def _load_smoke():
-    spec = importlib.util.spec_from_file_location("live_interview_booking_smoke", SCRIPT)
+    spec = importlib.util.spec_from_file_location("live_doctor_booking_smoke", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -48,17 +48,18 @@ class TestScenarioDecisions:
     def test_happy_path_requires_success_text_and_one_booking_id(self):
         smoke = _load_smoke()
 
-        assert smoke.happy_failure("预约成功！", [{"id": 7}]) is None
-        assert smoke.happy_failure("请问应聘的岗位是什么？", []) is not None
+        assert smoke.happy_failure("已预约内科初诊。预约成功！", [{"id": 7}]) is None
+        assert smoke.happy_failure("请先选择科室：内科、外科。", []) is not None
         assert smoke.happy_failure("预约成功！", []) is not None
 
-    def test_ask_path_requires_position_question_and_no_booking(self):
+    def test_ask_path_requires_specialty_question_and_no_booking(self):
         smoke = _load_smoke()
-        asked = "请问候选人的姓名是？ 请问应聘的岗位是什么？ 请问这是第几轮面试？"
+        asked = "[REPLY][预约助手]请先选择科室：内科、外科、儿科。"
 
         assert smoke.ask_failure(asked, []) is None
+        assert smoke.ask_failure("请问要挂哪个科室？比如内科。", []) is None
         assert smoke.ask_failure("预约成功！", [{"id": 3}]) is not None
-        assert smoke.ask_failure("好的，已记下。", []) is not None
+        assert smoke.ask_failure("好的，已记下症状。", []) is not None
 
 
 class TestSmokeCli:
@@ -85,7 +86,8 @@ class TestSmokeCli:
         combined = result.stdout + result.stderr
         assert secret not in combined
         assert "no model call" in combined
-        assert "岗位" in combined
+        assert "内科初诊" in combined
+        assert "科室" in combined
 
     def test_live_run_without_key_exits_nonzero(self):
         result = _run(
