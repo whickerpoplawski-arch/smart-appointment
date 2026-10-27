@@ -83,6 +83,23 @@ class TestArgumentValidation:
         assert set(properties) == {"specialty", "start_time", "duration_minutes", "doctor_name"}
         assert set(FIND_DOCTOR_SCHEMA["function"]["parameters"]["required"]) == set(properties)
 
+    def test_control_plane_constants_stay_locked(self):
+        from agents.appointment.booking_tool_loop import ALLOWED_ACTIONS, MAX_INVALID_ATTEMPTS
+        from agents.appointment.doctor_tools import TOOL_STATUSES
+        from agents.appointment_agent import MAX_TURNS
+
+        assert TOOL_STATUSES == (
+            "available",
+            "unavailable",
+            "not_found",
+            "no_match",
+            "invalid_arguments",
+            "invalid_time",
+        )
+        assert ALLOWED_ACTIONS == ("ask_user", "find_doctor", "finish")
+        assert MAX_INVALID_ATTEMPTS == 3
+        assert MAX_TURNS == 12
+
 
 class TestFourStates:
     def test_should_return_available_when_named_interviewer_is_free(self):
