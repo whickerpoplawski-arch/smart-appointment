@@ -1,14 +1,14 @@
-from .interview_agent import InterviewAgent
+from .appointment_agent import AppointmentAgent
 from .consultant_agent import ConsultantAgent
 from .task_classification_agent import TaskClassificationAgent
-from .candidate_behavior_agent import CandidateBehaviorAgent
+from .patient_behavior_agent import PatientBehaviorAgent
 from config.constants import SharedState, StateEnum
 
 __all__ = [
-    'InterviewAgent',
+    'AppointmentAgent',
     'ConsultantAgent',
     'TaskClassificationAgent',
-    'CandidateBehaviorAgent',
+    'PatientBehaviorAgent',
     'SharedState',
     'StateEnum'
 ]

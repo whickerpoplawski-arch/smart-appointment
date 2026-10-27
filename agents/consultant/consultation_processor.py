@@ -4,10 +4,25 @@
 负责协调整个咨询流程
 """
 
-from typing import AsyncGenerator, Dict, Any
+from typing import AsyncGenerator, Optional
+from config.constants import DEMO_DISCLAIMER
 from .knowledge_retriever import KnowledgeRetriever
 from .consultation_classifier import ConsultationClassifier
 from .response_generator import ResponseGenerator
+
+_MEDICAL_ADVICE_MARKERS = ("什么病", "开药", "处方", "剂量")
+
+
+def medical_advice_refusal(user_input: str) -> Optional[str]:
+    """症状判断、开药、处方、剂量一律固定拒绝，不进入知识库。"""
+    text = user_input or ""
+    if not any(marker in text for marker in _MEDICAL_ADVICE_MARKERS):
+        return None
+    return (
+        "[REPLY][咨询机器人]"
+        + DEMO_DISCLAIMER
+        + "我不能判断症状或开具用药。请先选择科室，我可以帮您预约医生档期。"
+    )
 
 
 class ConsultationProcessor:
@@ -22,6 +37,9 @@ class ConsultationProcessor:
     
     async def process_consultation(self, user_input: str) -> str:
         """处理标准咨询"""
+        refusal = medical_advice_refusal(user_input)
+        if refusal:
+            return refusal
         # 1. 检索知识
         knowledge_docs = await self.knowledge_retriever.search_knowledge(user_input, top_k=3)
         
@@ -32,6 +50,10 @@ class ConsultationProcessor:
     
     async def process_consultation_stream(self, user_input: str, session_id: str) -> AsyncGenerator[str, None]:
         """处理流式咨询"""
+        refusal = medical_advice_refusal(user_input)
+        if refusal:
+            yield refusal
+            return
         try:
             # 1. 检索知识
             knowledge_docs = await self.knowledge_retriever.search_knowledge(user_input, top_k=3)
@@ -40,7 +62,7 @@ class ConsultationProcessor:
             async for token in self.response_generator.generate_response_stream(user_input, knowledge_docs):
                 yield token
             
-            # 3. 记录候选人行为
+            # 3. 记录患者行为
             await self._record_consultation_behavior(user_input, knowledge_docs, session_id)
             
         except Exception as e:
@@ -62,10 +84,10 @@ class ConsultationProcessor:
                 yield token
     
     async def _record_consultation_behavior(self, user_input: str, knowledge_docs: list, session_id: str):
-        """记录候选人咨询行为"""
+        """记录患者咨询行为"""
         try:
-            from agents.candidate_behavior_agent import CandidateBehaviorAgent
-            behavior_agent = CandidateBehaviorAgent()
+            from agents.patient_behavior_agent import PatientBehaviorAgent
+            behavior_agent = PatientBehaviorAgent()
             
             action_data = {
                 'question': user_input,
@@ -80,4 +102,4 @@ class ConsultationProcessor:
             )
             
         except Exception as behavior_error:
-            print(f"记录候选人咨询行为失败：{behavior_error}")
+            print(f"记录患者咨询行为失败：{behavior_error}")

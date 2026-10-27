@@ -8,17 +8,17 @@ Database Module
 - 会话管理
 """
 
-from .db_router import DatabaseRouter, InterviewerDBRouter
+from .db_router import DatabaseRouter, DoctorDBRouter
 from .repositories import (
-    InterviewerRepository,
-    InterviewRepository,
+    DoctorRepository,
+    AppointmentRepository,
     KnowledgeRepository,
-    CandidateBehaviorRepository,
+    PatientBehaviorRepository,
 )
 from .base import SessionManager
 from .models import (
-    Base, Interviewer, InterviewerSchedule, Interview,
-    KnowledgeDocument, CandidateBehavior, CandidatePreference, CandidateRecommendation
+    Base, Doctor, DoctorSchedule, Appointment,
+    KnowledgeDocument, PatientBehavior, PatientPreference, PatientRecommendation
 )
 
 __all__ = [
@@ -26,24 +26,24 @@ __all__ = [
     'DatabaseRouter',
 
     # 兼容性路由器
-    'InterviewerDBRouter',
+    'DoctorDBRouter',
 
     # Repository模式
-    'InterviewerRepository',
-    'InterviewRepository',
+    'DoctorRepository',
+    'AppointmentRepository',
     'KnowledgeRepository',
-    'CandidateBehaviorRepository',
+    'PatientBehaviorRepository',
 
     # 基础设施
     'SessionManager',
 
     # 数据模型
     'Base',
-    'Interviewer',
-    'InterviewerSchedule',
-    'Interview',
+    'Doctor',
+    'DoctorSchedule',
+    'Appointment',
     'KnowledgeDocument',
-    'CandidateBehavior',
-    'CandidatePreference',
-    'CandidateRecommendation'
+    'PatientBehavior',
+    'PatientPreference',
+    'PatientRecommendation'
 ]

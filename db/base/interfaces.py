@@ -3,91 +3,91 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
-class BaseInterviewerRepository(ABC):
+class BaseDoctorRepository(ABC):
     """
-    面试官数据访问抽象接口
+    医生数据访问抽象接口
 
-    定义面试官相关的所有数据操作方法
+    定义医生相关的所有数据操作方法
     """
 
     @abstractmethod
-    def add_interviewer(self, name: str, department: Optional[str] = None, bio: Optional[str] = None) -> int:
-        """添加面试官"""
+    def add_doctor(self, name: str, department: Optional[str] = None, bio: Optional[str] = None) -> int:
+        """添加医生"""
         pass
 
     @abstractmethod
-    def get_interviewer_by_id(self, interviewer_id: int) -> Optional[Dict[str, Any]]:
-        """根据ID获取面试官信息"""
+    def get_doctor_by_id(self, doctor_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取医生信息"""
         pass
 
     @abstractmethod
-    def get_interviewer_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """根据姓名获取面试官信息"""
+    def get_doctor_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """根据姓名获取医生信息"""
         pass
 
     @abstractmethod
-    def get_all_interviewers(self) -> List[Dict[str, Any]]:
-        """获取所有面试官"""
+    def get_all_doctors(self) -> List[Dict[str, Any]]:
+        """获取所有医生"""
         pass
 
     @abstractmethod
-    def get_interviewers_by_department(self, department: str) -> List[Dict[str, Any]]:
-        """根据招聘方向获取面试官"""
+    def get_doctors_by_department(self, department: str) -> List[Dict[str, Any]]:
+        """根据科室获取医生"""
         pass
 
     @abstractmethod
     def get_all_departments(self) -> List[str]:
-        """获取所有招聘方向"""
+        """获取所有科室"""
         pass
 
     @abstractmethod
-    def update_interviewer(self, interviewer_id: int, **updates) -> bool:
-        """更新面试官信息"""
+    def update_doctor(self, doctor_id: int, **updates) -> bool:
+        """更新医生信息"""
         pass
 
     @abstractmethod
-    def delete_interviewer(self, interviewer_id: int) -> bool:
-        """删除面试官"""
+    def delete_doctor(self, doctor_id: int) -> bool:
+        """删除医生"""
         pass
 
 
 class BaseScheduleRepository(ABC):
     """
-    面试官日程数据访问抽象接口
+    医生日程数据访问抽象接口
 
     定义日程占用、查询与冲突检查方法
     """
 
     @abstractmethod
-    def add_schedule(self, interviewer_id: int, start_time: datetime, end_time: datetime,
-                     status: str, interview_id: Optional[int] = None) -> int:
+    def add_schedule(self, doctor_id: int, start_time: datetime, end_time: datetime,
+                     status: str, appointment_id: Optional[int] = None) -> int:
         """添加日程"""
         pass
 
     @abstractmethod
-    def get_interviewer_schedules(self, interviewer_id: int, date: datetime) -> List[Dict[str, Any]]:
-        """获取面试官指定日期的日程"""
+    def get_doctor_schedules(self, doctor_id: int, date: datetime) -> List[Dict[str, Any]]:
+        """获取医生指定日期的日程"""
         pass
 
     @abstractmethod
     def get_schedules_by_date(self, date: datetime) -> List[Dict[str, Any]]:
-        """获取所有面试官指定日期的日程"""
+        """获取所有医生指定日期的日程"""
         pass
 
     @abstractmethod
-    def is_interviewer_available(self, interviewer_id: int, start_time: datetime, end_time: datetime) -> bool:
-        """检查面试官时间段是否可用"""
+    def is_doctor_available(self, doctor_id: int, start_time: datetime, end_time: datetime) -> bool:
+        """检查医生时间段是否可用"""
         pass
 
     @abstractmethod
-    def get_available_interviewers(self, start_time: datetime, end_time: datetime,
+    def get_available_doctors(self, start_time: datetime, end_time: datetime,
                                    department: Optional[str] = None) -> List[Dict[str, Any]]:
-        """获取指定时段内空闲的面试官"""
+        """获取指定时段内空闲的医生"""
         pass
 
     @abstractmethod
     def update_schedule_status(self, schedule_id: int, status: str,
-                               interview_id: Optional[int] = None) -> bool:
+                               appointment_id: Optional[int] = None) -> bool:
         """更新日程状态"""
         pass
 
@@ -97,50 +97,50 @@ class BaseScheduleRepository(ABC):
         pass
 
 
-class BaseInterviewRepository(ABC):
+class BaseAppointmentRepository(ABC):
     """
-    面试数据访问抽象接口
+    就诊数据访问抽象接口
 
-    定义面试记录的创建、查询与取消方法
+    定义预约记录的创建、查询与取消方法
     """
 
     @abstractmethod
-    def create_interview(self, candidate_name: str, position: str, round: str, mode: str,
-                         interviewer_id: int, start_time: datetime, end_time: datetime,
+    def create_appointment(self, patient_name: str, specialty: str, visit_type: str, channel: str,
+                         doctor_id: int, start_time: datetime, end_time: datetime,
                          session_id: Optional[str] = None) -> int:
-        """创建面试记录（不写日程）"""
+        """创建预约记录（不写日程）"""
         pass
 
     @abstractmethod
-    def book_interview(self, candidate_name: str, position: str, round: str, mode: str,
-                       interviewer_id: int, start_time: datetime, end_time: datetime,
+    def book_appointment(self, patient_name: str, specialty: str, visit_type: str, channel: str,
+                       doctor_id: int, start_time: datetime, end_time: datetime,
                        session_id: Optional[str] = None) -> int:
-        """在同一事务内创建面试记录并占用面试官日程"""
+        """在同一事务内创建预约记录并占用医生日程"""
         pass
 
     @abstractmethod
-    def get_interview_by_id(self, interview_id: int) -> Optional[Dict[str, Any]]:
-        """根据ID获取面试记录"""
+    def get_appointment_by_id(self, appointment_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取预约记录"""
         pass
 
     @abstractmethod
-    def get_interviews_by_candidate(self, candidate_name: str) -> List[Dict[str, Any]]:
-        """根据候选人姓名获取面试记录"""
+    def get_appointments_by_patient(self, patient_name: str) -> List[Dict[str, Any]]:
+        """根据患者姓名获取预约记录"""
         pass
 
     @abstractmethod
-    def get_interviews_by_date(self, date: datetime) -> List[Dict[str, Any]]:
-        """获取指定日期的面试记录"""
+    def get_appointments_by_date(self, date: datetime) -> List[Dict[str, Any]]:
+        """获取指定日期的预约记录"""
         pass
 
     @abstractmethod
-    def get_all_interviews(self) -> List[Dict[str, Any]]:
-        """获取所有面试记录"""
+    def get_all_appointments(self) -> List[Dict[str, Any]]:
+        """获取所有预约记录"""
         pass
 
     @abstractmethod
-    def cancel_interview(self, interview_id: int) -> bool:
-        """取消面试并释放对应日程"""
+    def cancel_appointment(self, appointment_id: int) -> bool:
+        """取消就诊并释放对应日程"""
         pass
 
 
@@ -199,38 +199,38 @@ class BaseKnowledgeRepository(ABC):
         pass
 
 
-class BaseCandidateBehaviorRepository(ABC):
+class BasePatientBehaviorRepository(ABC):
     """
-    候选人行为数据访问抽象接口
+    患者行为数据访问抽象接口
 
-    定义候选人行为分析相关的所有数据操作方法
+    定义患者行为分析相关的所有数据操作方法
     """
 
     @abstractmethod
     def record_behavior(self, user_id: str, action_type: str, action_data: Optional[Dict[str, Any]] = None,
-                       interviewer_id: Optional[int] = None, session_id: Optional[str] = None) -> int:
-        """记录候选人行为"""
+                       doctor_id: Optional[int] = None, session_id: Optional[str] = None) -> int:
+        """记录患者行为"""
         pass
 
     @abstractmethod
-    def get_candidate_behaviors(self, user_id: str, action_type: Optional[str] = None,
+    def get_patient_behaviors(self, user_id: str, action_type: Optional[str] = None,
                                days_back: Optional[int] = None) -> List[Dict[str, Any]]:
-        """获取候选人行为历史"""
+        """获取患者行为历史"""
         pass
 
     @abstractmethod
-    def update_candidate_preference(self, user_id: str, preference_type: str, preference_value: str) -> bool:
-        """更新候选人偏好"""
+    def update_patient_preference(self, user_id: str, preference_type: str, preference_value: str) -> bool:
+        """更新患者偏好"""
         pass
 
     @abstractmethod
-    def get_candidate_preferences(self, user_id: str, preference_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        """获取候选人偏好"""
+    def get_patient_preferences(self, user_id: str, preference_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """获取患者偏好"""
         pass
 
     @abstractmethod
     def create_recommendation(self, user_id: str, recommendation_type: str, content: str,
-                            interviewer_id: Optional[int] = None) -> int:
+                            doctor_id: Optional[int] = None) -> int:
         """创建推荐"""
         pass
 
@@ -245,6 +245,6 @@ class BaseCandidateBehaviorRepository(ABC):
         pass
 
     @abstractmethod
-    def get_candidate_statistics(self, user_id: str, days_back: int = 30) -> Dict[str, Any]:
-        """获取候选人统计信息"""
+    def get_patient_statistics(self, user_id: str, days_back: int = 30) -> Dict[str, Any]:
+        """获取患者统计信息"""
         pass

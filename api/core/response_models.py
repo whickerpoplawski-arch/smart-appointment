@@ -2,7 +2,7 @@
 简化的API响应模型
 
 只保留第一版真正需要的核心功能。
-面试记录的请求/响应模型定义在 api/interview.py，与路由的字段校验放在一起，
+预约记录的请求/响应模型定义在 api/appointment.py，与路由的字段校验放在一起，
 这里只保留跨模块复用的通用模型。
 """
 from pydantic import BaseModel, Field
@@ -23,9 +23,9 @@ class DataResponse(BaseResponse):
     data: Any
 
 
-# 面试咨询相关模型
+# 就诊咨询相关模型
 class ConsultationRequest(BaseModel):
-    """面试咨询请求：候选人的问题原文"""
+    """就诊咨询请求：患者的问题原文"""
     user_id: str
     question: str
     category: Optional[str] = None
@@ -39,7 +39,7 @@ class TaskClassificationRequest(BaseModel):
 
 
 class TaskClassificationResponse(BaseModel):
-    """任务分类响应：interview / query / other"""
+    """任务分类响应：appointment / query / other"""
     text: str
     category: str
     confidence: float

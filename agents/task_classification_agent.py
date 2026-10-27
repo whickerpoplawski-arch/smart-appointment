@@ -22,9 +22,9 @@ class TaskClassificationAgent:
     3. 管理与其他Agent的协调
     """
 
-    def __init__(self, interview_agent, consultant_agent):
+    def __init__(self, appointment_agent, consultant_agent):
         # 基础设置
-        self.interview_agent = interview_agent
+        self.appointment_agent = appointment_agent
         self.consultant_agent = consultant_agent
 
         # 初始化LLM
@@ -34,7 +34,7 @@ class TaskClassificationAgent:
         self.state_manager = StateManager(SharedState())
         self.task_classifier = TaskClassifier(self.llm)
         self.agent_router = AgentRouter(
-            interview_agent,
+            appointment_agent,
             consultant_agent,
             self.state_manager
         )
@@ -57,13 +57,13 @@ class TaskClassificationAgent:
         return create_chat_model(temperature=0)
 
     def bind_session(self, record):
-        """把分类器、面试机器人和咨询机器人切到同一次请求的 session。"""
+        """把分类器、预约助手和咨询机器人切到同一次请求的 session。"""
         self.state_manager.state = record.shared_state
         self.state = record.shared_state
         self.agent_router.state_manager = self.state_manager
         self.agent_router._setup_agent_states()
-        if self.interview_agent and hasattr(self.interview_agent, "bind_session"):
-            self.interview_agent.bind_session(record)
+        if self.appointment_agent and hasattr(self.appointment_agent, "bind_session"):
+            self.appointment_agent.bind_session(record)
         if self.consultant_agent is not None:
             self.consultant_agent.session_id = record.session_id
             if hasattr(self.consultant_agent, "set_shared_state"):
@@ -71,8 +71,8 @@ class TaskClassificationAgent:
 
     def _setup_callbacks(self):
         """设置Agent的回调函数"""
-        if self.interview_agent and hasattr(self.interview_agent, 'unrelated_callback'):
-            self.interview_agent.unrelated_callback = self.handle_unrelated
+        if self.appointment_agent and hasattr(self.appointment_agent, 'unrelated_callback'):
+            self.appointment_agent.unrelated_callback = self.handle_unrelated
 
         if self.consultant_agent and hasattr(self.consultant_agent, 'set_unrelated_callback'):
             self.consultant_agent.set_unrelated_callback(self.handle_unrelated_async)
@@ -122,6 +122,6 @@ class TaskClassificationAgent:
         """重置对话状态"""
         self.classification_processor.reset_conversation()
 
-    def set_business_context(self, service_name: str = "面试预约服务"):
+    def set_business_context(self, service_name: str = "就诊预约服务"):
         """设置业务上下文"""
         self.unrelated_handler.set_business_context(service_name)

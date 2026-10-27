@@ -5,7 +5,7 @@
 不再使用模块级的全局 session。
 
 依赖说明：Agent 依赖 LLM 凭证与向量检索依赖，这里改为首次对话时惰性构建。
-管理页面（面试官、日程、候选人分析、知识库）因此不依赖模型凭证即可打开，
+管理页面（医生、日程、患者分析、知识库）因此不依赖模型凭证即可打开，
 只有真正进入对话时才需要完整的模型配置。
 """
 import uuid
@@ -29,11 +29,11 @@ def get_task_agent():
     global _task_agent
     if _task_agent is None:
         from agents.task_classification_agent import TaskClassificationAgent
-        from agents.interview_agent import InterviewAgent
+        from agents.appointment_agent import AppointmentAgent
         from agents.consultant_agent import ConsultantAgent
 
         _task_agent = TaskClassificationAgent(
-            InterviewAgent(),
+            AppointmentAgent(),
             ConsultantAgent()
         )
     return _task_agent
@@ -41,7 +41,7 @@ def get_task_agent():
 
 async def ProcessUserInput_stream(user_input, session_id=None):
     """
-    user_input: 候选人输入
+    user_input: 患者输入
     session_id: 本次会话。缺省时新建一个，调用方应在后续请求里带回。
     """
     if not session_id:
@@ -54,7 +54,7 @@ async def ProcessUserInput_stream(user_input, session_id=None):
         task_agent.bind_session(record)
     except Exception as e:
         # 模型或向量依赖未配置时给出可读提示，而不是让聊天接口直接 500
-        yield f"[REPLY][面试预约助手]服务暂未就绪，请检查模型配置后重试。（{e}）"
+        yield f"[REPLY][就诊预约助手]服务暂未就绪，请检查模型配置后重试。（{e}）"
         return
 
     try:

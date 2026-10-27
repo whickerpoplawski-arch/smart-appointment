@@ -18,16 +18,16 @@ logger = logging.getLogger(__name__)
 class AgentRouter:
     """智能体路由器 - 根据任务类型路由到对应的处理Agent"""
 
-    def __init__(self, interview_agent: Any, consultant_agent: Any, state_manager: StateManager):
+    def __init__(self, appointment_agent: Any, consultant_agent: Any, state_manager: StateManager):
         """
         初始化路由器
 
         Args:
-            interview_agent: 面试预约处理Agent
+            appointment_agent: 就诊预约处理Agent
             consultant_agent: 咨询处理Agent
             state_manager: 状态管理器
         """
-        self.interview_agent = interview_agent
+        self.appointment_agent = appointment_agent
         self.consultant_agent = consultant_agent
         self.state_manager = state_manager
 
@@ -36,15 +36,15 @@ class AgentRouter:
 
     def _setup_agent_states(self):
         """设置各Agent的共享状态"""
-        if self.interview_agent and hasattr(self.interview_agent, 'set_shared_state'):
-            self.interview_agent.set_shared_state(self.state_manager.state)
+        if self.appointment_agent and hasattr(self.appointment_agent, 'set_shared_state'):
+            self.appointment_agent.set_shared_state(self.state_manager.state)
 
         if self.consultant_agent and hasattr(self.consultant_agent, 'set_shared_state'):
             self.consultant_agent.set_shared_state(self.state_manager.state)
 
-    async def route_to_interview(self, task: str) -> AsyncGenerator[str, None]:
+    async def route_to_appointment(self, task: str) -> AsyncGenerator[str, None]:
         """
-        路由到面试预约Agent处理
+        路由到就诊预约Agent处理
 
         Args:
             task: 用户任务内容
@@ -52,21 +52,21 @@ class AgentRouter:
         Yields:
             str: 流式响应内容
         """
-        if not self.interview_agent:
-            yield "[ERROR]面试预约服务暂时不可用"
+        if not self.appointment_agent:
+            yield "[ERROR]就诊预约服务暂时不可用"
             return
 
         # 转换状态
-        self.state_manager.transition_to_interview()
+        self.state_manager.transition_to_appointment()
 
-        logger.info("归类机器人：这是预约面试任务，转给面试预约机器人")
+        logger.info("归类机器人：这是预约就诊任务，转给就诊预约机器人")
 
-        # 调用面试预约Agent
+        # 调用就诊预约Agent
         try:
-            async for token in self.interview_agent.run_stream(user_input=task):
+            async for token in self.appointment_agent.run_stream(user_input=task):
                 yield token
         except Exception as e:
-            yield f"[ERROR]面试预约处理失败: {str(e)}"
+            yield f"[ERROR]就诊预约处理失败: {str(e)}"
             self.state_manager.reset_to_classify()
 
     async def route_to_consultation(self, task: str) -> AsyncGenerator[str, None]:
@@ -107,7 +107,7 @@ class AgentRouter:
         Yields:
             str: 回复内容
         """
-        reply = "暂不支持该类型任务。请只询问和面试预约相关的问题。"
+        reply = "暂不支持该类型任务。请只询问和就诊预约相关的问题。"
         yield "[REPLY][归类机器人]"
         for char in reply:
             yield char
@@ -122,8 +122,8 @@ class AgentRouter:
         Yields:
             str: 流式响应内容
         """
-        if self.state_manager.is_in_interview_flow():
-            async for token in self.interview_agent.run_stream(user_input=task):
+        if self.state_manager.is_in_appointment_flow():
+            async for token in self.appointment_agent.run_stream(user_input=task):
                 yield token
         elif self.state_manager.is_in_consultation_flow():
             async with self.consultant_agent as agent:
@@ -137,8 +137,8 @@ class AgentRouter:
     def get_available_services(self) -> list:
         """获取可用的服务列表"""
         services = []
-        if self.interview_agent:
-            services.append("面试预约服务")
+        if self.appointment_agent:
+            services.append("就诊预约服务")
         if self.consultant_agent:
             services.append("咨询服务")
         return services
