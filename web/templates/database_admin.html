@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>数据库统计 - 面试预约助手</title>
+    <title>数据库统计 - 就诊预约助手</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -140,7 +140,7 @@
     <div class="container">
         <div class="header">
             <h2><i class="fas fa-database"></i> 数据库统计</h2>
-            <p>面试预约系统的核心数据规模与分布</p>
+            <p>就诊预约系统的核心数据规模与分布</p>
         </div>
 
         <div class="content">
@@ -163,23 +163,23 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td><code>interviewers</code></td>
-                            <td>面试官（按招聘方向组织）</td>
-                            <td class="count">{{ stats.interviewers or 0 }}</td>
+                            <td><code>doctors</code></td>
+                            <td>医生（按科室组织）</td>
+                            <td class="count">{{ stats.doctors or 0 }}</td>
                         </tr>
                         <tr>
-                            <td><code>interviews</code></td>
-                            <td>面试预约记录（候选人 / 岗位 / 轮次 / 形式）</td>
-                            <td class="count">{{ stats.interviews or 0 }}</td>
+                            <td><code>appointments</code></td>
+                            <td>就诊预约记录（患者 / 科室 / 就诊类型 / 渠道）</td>
+                            <td class="count">{{ stats.appointments or 0 }}</td>
                         </tr>
                         <tr>
-                            <td><code>interviews（已取消）</code></td>
-                            <td>状态为 cancelled 的面试记录</td>
-                            <td class="count">{{ stats.cancelled_interviews or 0 }}</td>
+                            <td><code>appointments（已取消）</code></td>
+                            <td>状态为 cancelled 的预约记录</td>
+                            <td class="count">{{ stats.cancelled_appointments or 0 }}</td>
                         </tr>
                         <tr>
                             <td><code>knowledge_documents</code></td>
-                            <td>面试 FAQ 知识条目</td>
+                            <td>就诊 FAQ 知识条目</td>
                             <td class="count">{{ stats.knowledge_documents or 0 }}</td>
                         </tr>
                     </tbody>
@@ -187,9 +187,9 @@
             </div>
 
             <div class="hint">
-                <strong>说明：</strong>面试记录与面试官日程通过 <code>interview_id</code> 关联，
-                面试官日程只表达时段占用，候选人姓名、岗位、轮次与形式等业务信息全部保存在 <code>interviews</code> 表。
-                数据库文件默认位于 <code>data/interview_agent.db</code>。
+                <strong>说明：</strong>预约记录与医生日程通过 <code>appointment_id</code> 关联，
+                医生日程只表达时段占用，患者姓名、科室、就诊类型与渠道全部保存在 <code>appointments</code> 表。
+                数据库文件默认位于 <code>data/doctor_appointment.db</code>。
             </div>
 
             <div class="actions">
@@ -204,5 +204,6 @@
             </div>
         </div>
     </div>
+    {% include "_disclaimer.html" %}
 </body>
 </html>

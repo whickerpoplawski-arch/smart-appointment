@@ -7,25 +7,25 @@ from db.base.session_manager import SessionManager
 from db.repositories.session_snapshot_repository import SessionSnapshotRepository
 
 SLOT_FIELDS = (
-    "candidate_name",
-    "position",
-    "round",
+    "patient_name",
+    "specialty",
+    "visit_type",
     "start_time",
 )
 
 
-def new_interview_history() -> dict:
+def new_appointment_history() -> dict:
     return {
-        "candidate_name": None,
-        "position": None,
-        "round": None,
-        "mode": None,
+        "patient_name": None,
+        "specialty": None,
+        "visit_type": None,
+        "channel": None,
         "start_time": None,
         "duration": None,
-        "interviewer_name": None,
+        "doctor_name": None,
         "preference": None,
-        "recommended_interviewer": None,
-        "original_interviewer": None,
+        "recommended_doctor": None,
+        "original_doctor": None,
         "awaiting_confirmation": False,
         "recommendation_declined": False,
         "pending_alternative_slots": [],
@@ -43,13 +43,13 @@ class SessionRecord:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.shared_state = SharedState()
-        self.interview_history = new_interview_history()
+        self.appointment_history = new_appointment_history()
         self.chat_history = InMemoryChatMessageHistory()
         self.turn_count = 0
 
 
 class SessionRegistry:
-    def __init__(self, db_path: str = "sqlite:///data/interview_agent.db", snapshots=None,
+    def __init__(self, db_path: str = "sqlite:///data/doctor_appointment.db", snapshots=None,
                  enable_snapshots: bool = True):
         self._records = {}
         if snapshots is not None:
@@ -67,13 +67,13 @@ class SessionRegistry:
         record = SessionRecord(session_id)
         saved = self.snapshots.load(session_id) if self.snapshots is not None else None
         if saved:
-            record.interview_history.update(saved)
-            if history_has_progress(record.interview_history):
+            record.appointment_history.update(saved)
+            if history_has_progress(record.appointment_history):
                 from agents.task_classification.state_manager import StateManager
-                StateManager(record.shared_state).transition_to_interview()
+                StateManager(record.shared_state).transition_to_appointment()
         self._records[session_id] = record
         return record
 
     def save(self, record: SessionRecord) -> None:
         if self.snapshots is not None:
-            self.snapshots.save(record.session_id, record.interview_history)
+            self.snapshots.save(record.session_id, record.appointment_history)

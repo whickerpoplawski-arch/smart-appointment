@@ -6,16 +6,16 @@ from db.base.session_manager import SessionManager
 from db.models import SessionSlotSnapshot
 
 SNAPSHOT_KEYS = (
-    "candidate_name",
-    "position",
-    "round",
-    "mode",
+    "patient_name",
+    "specialty",
+    "visit_type",
+    "channel",
     "start_time",
     "duration",
-    "interviewer_name",
+    "doctor_name",
     "preference",
     "awaiting_confirmation",
-    "recommended_interviewer",
+    "recommended_doctor",
     "pending_alternative_slots",
     "awaiting_slot_choice",
 )

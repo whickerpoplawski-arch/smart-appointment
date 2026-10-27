@@ -2,7 +2,7 @@
 FastAPI应用程序
 
 主应用程序入口，配置中间件、路由和异常处理。
-启动时自动初始化面试知识库、默认面试官，并拉起面试提醒的推荐调度服务。
+启动时自动初始化就诊须知库、默认医生，并拉起就诊提醒的推荐调度服务。
 """
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -44,8 +44,8 @@ def create_app() -> FastAPI:
     """创建FastAPI应用实例"""
 
     app = FastAPI(
-        title="面试预约AI助手",
-        description="面向候选人的面试预约服务：按岗位匹配面试官、检查日程冲突、解答面试流程问题并分析候选人偏好",
+        title="就诊预约AI助手",
+        description="面向患者的就诊预约演示：按科室匹配医生档期，不提供诊断或处方",
         version="2.0.0",
         docs_url="/docs",
         redoc_url="/redoc"
@@ -64,11 +64,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(BusinessException, api_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)
 
-    # 注册API路由（面试记录 / 面试官 / 面试咨询 / 任务分类 / 面试知识库 / 候选人分析）
+    # 注册API路由（预约记录 / 医生 / 就诊咨询 / 任务分类 / 就诊须知库 / 患者分析）
     for router in api_routers:
         app.include_router(router)
 
-    # 注册Web界面路由（聊天主页、面试官状态、面试官日程、候选人分析、知识库、管理页）
+    # 注册Web界面路由（聊天主页、医生状态、医生日程、患者分析、知识库、管理页）
     app.include_router(web_router)
 
     # 静态文件

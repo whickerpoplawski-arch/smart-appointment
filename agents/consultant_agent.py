@@ -73,6 +73,12 @@ class ConsultantAgent:
         
         这是主要的咨询入口点，协调各个组件完成咨询流程
         """
+        from agents.consultant.consultation_processor import medical_advice_refusal
+        refusal = medical_advice_refusal(user_input)
+        if refusal:
+            yield refusal
+            return
+
         # 1. 检查是否与咨询相关
         is_consultation = await self.consultation_classifier.is_consultation_related(user_input)
         

@@ -6,48 +6,60 @@ import pytest
 @pytest.fixture
 def temp_db_path(tmp_path):
     """每个测试用独立的临时 SQLite 数据库，避免污染真实数据"""
-    return f"sqlite:///{tmp_path / 'interview_test.db'}"
+    return f"sqlite:///{tmp_path / 'appointment_test.db'}"
 
 
-class FakeInterviewService:
-    """面试服务假实现，只覆盖 InterviewerFinder 需要的方法"""
+class FakeDoctorService:
+    """就诊服务假实现，只覆盖 DoctorFinder 需要的方法"""
 
-    def __init__(self, interviewers=None, department_map=None, available_ids=None):
-        self.interviewers = interviewers or []
+    def __init__(self, doctors=None, department_map=None, available_ids=None):
+        self.doctors = doctors or []
         self.department_map = department_map or {}
         if available_ids is None:
-            available_ids = [i["id"] for i in self.interviewers]
+            available_ids = [i["id"] for i in self.doctors]
         self.available_ids = set(available_ids)
         self.available_calls = []
 
-    def get_interviewer_by_name(self, name):
-        for interviewer in self.interviewers:
-            if interviewer["name"] == name:
-                return interviewer
+    def get_doctor_by_name(self, name):
+        for doctor in self.doctors:
+            if doctor["name"] == name:
+                return doctor
         return None
 
-    def get_all_interviewers(self):
-        return list(self.interviewers)
+    def get_all_doctors(self):
+        return list(self.doctors)
 
-    def get_interviewers_by_department(self, department):
-        return [item for item in self.interviewers if item.get("department") == department]
+    def get_doctors_by_department(self, department):
+        return [item for item in self.doctors if item.get("department") == department]
 
-    def get_interviewers_by_position(self, position):
-        department = self.match_department(position)
-        if department:
-            return self.get_interviewers_by_department(department)
-        return self.get_all_interviewers()
+    def get_doctors_by_specialty(self, specialty):
+        department = self.match_department(specialty)
+        if not department:
+            return []
+        return self.get_doctors_by_department(department)
 
-    def match_department(self, position):
-        return self.department_map.get(position)
+    def match_department(self, specialty):
+        if not specialty:
+            return None
+        if specialty in self.department_map:
+            return self.department_map[specialty]
+        names = sorted(
+            {item.get("department") for item in self.doctors if item.get("department")},
+            key=len,
+            reverse=True,
+        )
+        for name in names:
+            if name in str(specialty):
+                return name
+        return None
 
-    def is_interviewer_available(self, interviewer_id, start_time, end_time):
-        self.available_calls.append((interviewer_id, start_time, end_time))
-        return interviewer_id in self.available_ids
+    def is_doctor_available(self, doctor_id, start_time, end_time):
+        self.available_calls.append((doctor_id, start_time, end_time))
+        return doctor_id in self.available_ids
 
-    def get_available_interviewers(self, start_time, end_time, department=None):
+    def get_available_doctors(self, start_time, end_time, department=None):
         return [
-            item for item in self.interviewers
+            item for item in self.doctors
             if item["id"] in self.available_ids
             and (department is None or item.get("department") == department)
         ]

@@ -2,20 +2,20 @@
 Repositories Module
 
 数据访问对象模块，包含：
-- 面试官数据仓库
-- 面试记录数据仓库
+- 医生数据仓库
+- 预约记录数据仓库
 - 知识库数据仓库
-- 候选人行为数据仓库
+- 患者行为数据仓库
 """
 
-from .interviewer_repository import InterviewerRepository
-from .interview_repository import InterviewRepository
+from .doctor_repository import DoctorRepository
+from .appointment_repository import AppointmentRepository
 from .knowledge_repository import KnowledgeRepository
-from .candidate_behavior_repository import CandidateBehaviorRepository
+from .patient_behavior_repository import PatientBehaviorRepository
 
 __all__ = [
-    'InterviewerRepository',
-    'InterviewRepository',
+    'DoctorRepository',
+    'AppointmentRepository',
     'KnowledgeRepository',
-    'CandidateBehaviorRepository'
+    'PatientBehaviorRepository'
 ]

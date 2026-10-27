@@ -8,7 +8,7 @@ API 层时间序列化工具
 from datetime import datetime
 from typing import Optional
 
-# 面试记录与日程的默认展示格式
+# 预约记录与日程的默认展示格式
 DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 TIME_FORMAT = "%H:%M"
 DATE_FORMAT = "%Y-%m-%d"

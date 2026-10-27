@@ -35,17 +35,17 @@ def embed_input(input_text: str, model: str = "text-embedding-ada-002",
     return embeddings.embed_query(input_text)
 
 
-def save_interviewer_embeddings(embeddings, indices, path="data/interviewer_embeddings.pkl"):
+def save_doctor_embeddings(embeddings, indices, path="data/doctor_embeddings.pkl"):
     """
-    保存面试官嵌入向量和索引到本地
+    保存医生嵌入向量和索引到本地
     """
     with open(path, "wb") as f:
         pickle.dump({"embeddings": embeddings, "indices": indices}, f)
 
 
-def load_interviewer_embeddings(path="data/interviewer_embeddings.pkl"):
+def load_doctor_embeddings(path="data/doctor_embeddings.pkl"):
     """
-    加载本地保存的面试官嵌入向量和索引
+    加载本地保存的医生嵌入向量和索引
     """
     if not os.path.exists(path):
         return None, None

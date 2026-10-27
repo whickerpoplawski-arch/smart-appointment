@@ -6,21 +6,21 @@ import json
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
-from agents.interview.booking_tool_loop import (
+from agents.appointment.booking_tool_loop import (
     MAX_INVALID_ATTEMPTS,
     BookingToolLoop,
     policy_next_action,
     run_with_fallback,
 )
-from agents.interview_agent import MAX_TURNS, InterviewAgent
+from agents.appointment_agent import MAX_TURNS, AppointmentAgent
 from agents.session_registry import SessionRegistry
 
 
 VALID_ARGS = {
-    "position": "后端工程师",
+    "specialty": "内科",
     "start_time": "2026-10-27 15:00",
     "duration_minutes": 45,
-    "interviewer_name": None,
+    "doctor_name": None,
 }
 
 
@@ -28,7 +28,7 @@ class StubFinder:
     def __init__(self, result=None):
         self.result = result or {
             "status": "available",
-            "interviewer": {"id": 1, "name": "张伟", "department": "后端"},
+            "doctor": {"id": 1, "name": "张伟", "department": "内科"},
         }
         self.calls = []
 
@@ -65,7 +65,7 @@ class TestToolLoopFallback:
 
         async def legacy(user_input):
             seen.append(user_input)
-            yield "[REPLY][面试机器人]回退成功"
+            yield "[REPLY][预约助手]回退成功"
 
         tokens = await collect(run_with_fallback(loop, legacy, "约一面", {}))
 
@@ -76,13 +76,13 @@ class TestToolLoopFallback:
     @pytest.mark.asyncio
     async def test_should_fall_back_after_three_invalid_arguments(self):
         finder = StubFinder()
-        illegal = action("find_interviewer", arguments={"position": "后端"})
+        illegal = action("find_doctor", arguments={"specialty": "后端"})
         loop = BookingToolLoop(FakeListChatModel(responses=[illegal] * 3), finder)
         seen = []
 
         async def legacy(user_input):
             seen.append(user_input)
-            yield "[REPLY][面试机器人]参数回退"
+            yield "[REPLY][预约助手]参数回退"
 
         tokens = await collect(run_with_fallback(loop, legacy, "约张伟", {}))
 
@@ -97,9 +97,9 @@ class TestToolLoopFallback:
 
         async def legacy(user_input):
             seen.append("timeout")
-            yield "[REPLY][面试机器人]超时回退"
+            yield "[REPLY][预约助手]超时回退"
 
-        tokens = await collect(run_with_fallback(loop, legacy, "约面试", {}))
+        tokens = await collect(run_with_fallback(loop, legacy, "约就诊", {}))
 
         assert seen == ["timeout"]
         assert "超时回退" in "".join(tokens)
@@ -114,7 +114,7 @@ class TestToolLoopFallback:
 
         async def legacy(user_input):
             seen.append(user_input)
-            yield "[REPLY][面试机器人]不该回退"
+            yield "[REPLY][预约助手]不该回退"
 
         tokens = await collect(run_with_fallback(loop, legacy, "我是张三", {}))
 
@@ -127,12 +127,12 @@ class TestToolLoopFallback:
         finished = {}
 
         async def on_finish(observation, history):
-            finished["name"] = observation["interviewer"]["name"]
-            finished["position"] = history.get("position")
-            return "[REPLY][面试机器人]预约完成"
+            finished["name"] = observation["doctor"]["name"]
+            finished["specialty"] = history.get("specialty")
+            return "[REPLY][预约助手]预约完成"
 
         loop = BookingToolLoop(
-            FakeListChatModel(responses=[action("find_interviewer", arguments=VALID_ARGS)]),
+            FakeListChatModel(responses=[action("find_doctor", arguments=VALID_ARGS)]),
             finder,
             on_finish=on_finish,
         )
@@ -145,7 +145,7 @@ class TestToolLoopFallback:
         tokens = await collect(run_with_fallback(loop, legacy, "约张伟", {}))
 
         assert seen == []
-        assert finished == {"name": "张伟", "position": "后端工程师"}
+        assert finished == {"name": "张伟", "specialty": "内科"}
         assert "预约完成" in "".join(tokens)
         assert policy_next_action(loop.last_observation) == "finish"
         assert finder.calls
@@ -153,18 +153,18 @@ class TestToolLoopFallback:
     @pytest.mark.asyncio
     async def test_agent_run_stream_uses_fallback_parser(self):
         slot_json = json.dumps({
-            "candidate_name": "张三",
-            "position": "未知",
-            "round": "未知",
-            "mode": "未知",
+            "patient_name": "张三",
+            "specialty": "未知",
+            "visit_type": "未知",
+            "channel": "未知",
             "start_time": "未知",
             "duration": "未知",
-            "interviewer_name": "未知",
+            "doctor_name": "未知",
             "preference": "未知",
             "confirmation": "未知",
             "unrelated": False,
         }, ensure_ascii=False)
-        agent = InterviewAgent(
+        agent = AppointmentAgent(
             llm=FakeListChatModel(responses=["坏的", "坏的", "坏的", slot_json]),
             session_id="tool-loop-fallback",
             timeout_seconds=1,
@@ -172,21 +172,49 @@ class TestToolLoopFallback:
 
         tokens = await collect(agent.run_stream("我是张三"))
 
-        assert agent.interview_history["candidate_name"] == "张三"
+        assert agent.appointment_history["patient_name"] == "张三"
         assert any("[REPLY]" in token for token in tokens)
+
+    @pytest.mark.asyncio
+    async def test_should_ask_user_to_pick_a_department_for_a_symptom(self):
+        finder = StubFinder(result={
+            "status": "no_match",
+            "department": None,
+            "searched_specialty": "咳嗽两天",
+            "needs_specialty": True,
+        })
+        payload = action("find_doctor", arguments={
+            "specialty": "咳嗽两天",
+            "start_time": "2026-10-27 15:00",
+            "duration_minutes": 30,
+            "doctor_name": None,
+        })
+        searched = []
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[payload]),
+            finder,
+            slot_search=lambda history: searched.append(history) or [{"start_time": "x"}],
+        )
+
+        tokens = "".join(await collect(loop.run("我咳嗽两天", {})))
+
+        assert "请先选择科室" in tokens
+        assert "内科" in tokens
+        assert searched == []
+        assert policy_next_action(loop.last_observation) == "ask_user"
 
 
 class TestTurnBudget:
     @pytest.mark.asyncio
     async def test_should_stop_at_max_turns_and_report_slots(self):
         ask = json.dumps({"action": "ask_user", "message": "继续"}, ensure_ascii=False)
-        agent = InterviewAgent(
+        agent = AppointmentAgent(
             llm=FakeListChatModel(responses=[ask] * (MAX_TURNS + 2)),
             session_id="turns",
             timeout_seconds=1,
         )
-        agent.interview_history["candidate_name"] = "张三"
-        agent.interview_history["position"] = "后端"
+        agent.appointment_history["patient_name"] = "张三"
+        agent.appointment_history["specialty"] = "内科"
 
         for _ in range(MAX_TURNS - 1):
             tokens = await collect(agent.run_stream("继续说"))
@@ -198,7 +226,7 @@ class TestTurnBudget:
 
         assert "上限" in limited
         assert "张三" in limited
-        assert "后端" in limited
+        assert "内科" in limited
         assert "继续" not in limited
         assert "上限" in again
 
@@ -206,7 +234,7 @@ class TestTurnBudget:
     async def test_turn_budget_is_per_session(self):
         ask = json.dumps({"action": "ask_user", "message": "继续"}, ensure_ascii=False)
         registry = SessionRegistry(enable_snapshots=False)
-        agent = InterviewAgent(
+        agent = AppointmentAgent(
             llm=FakeListChatModel(responses=[ask] * 20),
             session_id="boot",
             timeout_seconds=1,

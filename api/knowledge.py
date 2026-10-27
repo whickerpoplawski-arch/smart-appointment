@@ -1,7 +1,7 @@
 """
 知识库管理 API
 
-知识库内容为面试 FAQ（流程、轮次、材料、地点、改期、结果通知等），
+知识库内容为就诊 FAQ（流程、轮次、材料、地点、改期、结果通知等），
 本模块只做 CRUD 与检索的接口层，检索能力由 KnowledgeService 提供。
 
 数据格式约定（前端模板与接口保持一致）：
@@ -60,7 +60,7 @@ async def get_knowledge_service():
     获取已初始化的知识库服务
 
     知识库服务会在初始化时构建 FAISS 向量索引，按请求重建代价很高。
-    这里按数据库路径缓存实例：切换 INTERVIEW_DB_PATH（测试 / 多环境）时自动换新实例，
+    这里按数据库路径缓存实例：切换 APPOINTMENT_DB_PATH（测试 / 多环境）时自动换新实例，
     同一路径下则复用索引；初始化用锁串行化，避免并发首个请求重复建索引。
     """
     from services.knowledge_service import KnowledgeService
@@ -127,7 +127,7 @@ async def get_knowledge(knowledge_id: int):
 
 @router.post("/")
 async def add_knowledge(item: KnowledgeItem):
-    """添加新的面试知识条目"""
+    """添加新的就诊须知条目"""
     try:
         content = item.resolved_content()
         if not content:
@@ -205,7 +205,7 @@ async def delete_knowledge(knowledge_id: int):
 @router.post("/search")
 async def search_knowledge(request: SearchRequest):
     """
-    检索面试知识
+    检索就诊须知
 
     返回中同时提供 results / total_found 与 data / count 两套字段：
     前者供页面渲染，后者供脚本调用，避免两边各写一套映射。

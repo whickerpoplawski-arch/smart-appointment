@@ -1,4 +1,4 @@
-"""失败后的域内改期：最多两个工作日选项，选定后再查一次面试官。"""
+"""失败后的域内改期：最多两个工作日选项，选定后再查一次医生。"""
 
 import json
 from datetime import datetime, timedelta
@@ -6,9 +6,9 @@ from datetime import datetime, timedelta
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
-from agents.interview.alternative_slots import search_alternative_slots, slots_for_history
-from agents.interview.booking_tool_loop import BookingToolLoop, policy_next_action
-from agents.interview.interview_processor import DEFAULT_DURATION_BY_ROUND
+from agents.appointment.alternative_slots import search_alternative_slots, slots_for_history
+from agents.appointment.booking_tool_loop import BookingToolLoop, policy_next_action
+from agents.appointment.appointment_processor import DEFAULT_DURATION_BY_VISIT
 
 
 class QueueFinder:
@@ -33,12 +33,12 @@ class ScriptModel:
 
 def find_action():
     return json.dumps({
-        "action": "find_interviewer",
+        "action": "find_doctor",
         "arguments": {
-            "position": "后端工程师",
+            "specialty": "内科",
             "start_time": "2026-10-27 15:00",
             "duration_minutes": 45,
-            "interviewer_name": None,
+            "doctor_name": None,
         },
     }, ensure_ascii=False)
 
@@ -46,12 +46,12 @@ def find_action():
 class TestSlotScan:
     def test_should_offer_two_slots_on_future_business_days(self):
         now = datetime(2026, 10, 24, 10, 0)  # 周六，下一个工作日是周一
-        options = search_alternative_slots(now, DEFAULT_DURATION_BY_ROUND["二面"], lambda start, end: True)
+        options = search_alternative_slots(now, DEFAULT_DURATION_BY_VISIT["初诊"], lambda start, end: True)
 
         assert len(options) == 2
         assert options[0]["start_time"] == "2026-10-26 09:00"
         assert options[1]["start_time"] == "2026-10-26 10:00"
-        assert options[0]["duration_minutes"] == DEFAULT_DURATION_BY_ROUND["二面"]
+        assert options[0]["duration_minutes"] == DEFAULT_DURATION_BY_VISIT["初诊"]
 
     def test_should_skip_hours_already_past(self):
         now = datetime(2026, 10, 27, 15, 30)
@@ -66,32 +66,32 @@ class TestSlotScan:
         spans = []
 
         class Service:
-            def get_interviewer_by_name(self, name):
+            def get_doctor_by_name(self, name):
                 return None
 
-            def match_department(self, position):
-                return "后端"
+            def match_department(self, specialty):
+                return "内科"
 
-            def get_available_interviewers(self, start, end, department=None):
+            def get_available_doctors(self, start, end, department=None):
                 spans.append((start, end, department))
                 return [{"id": 1}] if len(spans) <= 2 else []
 
-            def is_interviewer_available(self, interviewer_id, start, end):
+            def is_doctor_available(self, doctor_id, start, end):
                 return False
 
         class Finder:
-            interview_service = Service()
+            appointment_service = Service()
 
         options = slots_for_history(
             Finder(),
-            {"round": "二面", "position": "后端工程师", "interviewer_name": None},
+            {"visit_type": "初诊", "specialty": "内科", "doctor_name": None},
             now=datetime(2026, 10, 27, 8, 0),
         )
 
         assert len(options) == 2
-        assert options[0]["duration_minutes"] == DEFAULT_DURATION_BY_ROUND["二面"]
-        assert spans[0][1] - spans[0][0] == timedelta(minutes=60)
-        assert spans[0][2] == "后端"
+        assert options[0]["duration_minutes"] == DEFAULT_DURATION_BY_VISIT["初诊"]
+        assert spans[0][1] - spans[0][0] == timedelta(minutes=30)
+        assert spans[0][2] == "内科"
 
 
 class TestReplanPolicy:
@@ -101,14 +101,18 @@ class TestReplanPolicy:
             "status": "unavailable",
             "alternatives": [],
         }) == "search_alternative_slots"
+        assert policy_next_action({
+            "status": "no_match",
+            "needs_specialty": True,
+        }) == "ask_user"
 
 
 class TestReplanLoop:
     @pytest.mark.asyncio
-    async def test_should_search_then_find_interviewer_again_after_user_picks(self):
+    async def test_should_search_then_find_doctor_again_after_user_picks(self):
         finder = QueueFinder([
-            {"status": "no_match", "department": "后端", "searched_position": "后端工程师"},
-            {"status": "available", "interviewer": {"id": 1, "name": "张伟", "department": "后端"}},
+            {"status": "no_match", "department": "内科", "searched_specialty": "内科"},
+            {"status": "available", "doctor": {"id": 1, "name": "张伟", "department": "内科"}},
         ])
         offered = [{
             "start_time": "2026-10-28 10:00",
@@ -123,8 +127,8 @@ class TestReplanLoop:
 
         async def on_finish(observation, history):
             finished["start"] = history.get("start_time")
-            finished["name"] = observation["interviewer"]["name"]
-            return "[REPLY][面试机器人]第二次查询后完成"
+            finished["name"] = observation["doctor"]["name"]
+            return "[REPLY][预约助手]第二次查询后完成"
 
         loop = BookingToolLoop(
             ScriptModel([find_action()]),
@@ -132,7 +136,7 @@ class TestReplanLoop:
             on_finish=on_finish,
             slot_search=lambda history: offered,
         )
-        history = {"round": "一面"}
+        history = {"visit_type": "初诊"}
 
         first = [token async for token in loop.run("约明天下午", history)]
         assert policy_next_action(finder.results[0] if False else {"status": "no_match"}) == "search_alternative_slots"
@@ -153,7 +157,7 @@ class TestReplanLoop:
     async def test_should_not_replan_when_alternatives_exist(self):
         finder = QueueFinder([{
             "status": "unavailable",
-            "requested_interviewer": {"id": 1, "name": "张伟"},
+            "requested_doctor": {"id": 1, "name": "张伟"},
             "alternatives": [{"id": 2, "name": "王强"}],
         }])
         searched = []
