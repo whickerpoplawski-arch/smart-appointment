@@ -136,7 +136,7 @@ class TestReplanLoop:
             on_finish=on_finish,
             slot_search=lambda history: offered,
         )
-        history = {"visit_type": "初诊"}
+        history = {"patient_name": "张三", "visit_type": "初诊"}
 
         first = [token async for token in loop.run("约明天下午", history)]
         assert policy_next_action(finder.results[0] if False else {"status": "no_match"}) == "search_alternative_slots"

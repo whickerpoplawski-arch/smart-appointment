@@ -101,11 +101,11 @@ def _follow_up(reply: str) -> str:
     if "请回复 1 或 2" in reply or "可以改到" in reply:
         return "1"
     if "姓名" in reply:
-        return "冒烟张三"
+        return "冒烟张三，内科初诊，2026-11-20 15:00，门诊。"
     if "科室" in reply:
         return "内科"
     if "初诊" in reply or "复诊" in reply or "就诊类型" in reply:
-        return "初诊"
+        return "初诊，2026-11-20 15:00，门诊。"
     if "时间" in reply:
         return "2026-11-20 15:00"
     if "是" in reply and "不" in reply:
