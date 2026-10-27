@@ -55,6 +55,14 @@ class TestArgumentValidation:
         assert result["status"] == "invalid_arguments"
         assert "480" in result["reason"]
 
+    def test_should_reject_duration_below_floor(self):
+        finder = make_finder()
+
+        result = find_doctor(args(duration_minutes=10), finder)
+
+        assert result["status"] == "invalid_arguments"
+        assert "30" in result["reason"]
+
     def test_should_reject_null_start_time(self):
         finder = make_finder()
 
@@ -74,6 +82,23 @@ class TestArgumentValidation:
 
         assert set(properties) == {"specialty", "start_time", "duration_minutes", "doctor_name"}
         assert set(FIND_DOCTOR_SCHEMA["function"]["parameters"]["required"]) == set(properties)
+
+    def test_control_plane_constants_stay_locked(self):
+        from agents.appointment.booking_tool_loop import ALLOWED_ACTIONS, MAX_INVALID_ATTEMPTS
+        from agents.appointment.doctor_tools import TOOL_STATUSES
+        from agents.appointment_agent import MAX_TURNS
+
+        assert TOOL_STATUSES == (
+            "available",
+            "unavailable",
+            "not_found",
+            "no_match",
+            "invalid_arguments",
+            "invalid_time",
+        )
+        assert ALLOWED_ACTIONS == ("ask_user", "find_doctor", "finish")
+        assert MAX_INVALID_ATTEMPTS == 3
+        assert MAX_TURNS == 12
 
 
 class TestFourStates:
