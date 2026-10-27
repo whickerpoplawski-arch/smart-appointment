@@ -142,7 +142,9 @@ class TestToolLoopFallback:
             seen.append(user_input)
             yield "不该回退"
 
-        tokens = await collect(run_with_fallback(loop, legacy, "约张伟", {}))
+        tokens = await collect(run_with_fallback(
+            loop, legacy, "约张伟", {"patient_name": "张三", "visit_type": "初诊"}
+        ))
 
         assert seen == []
         assert finished == {"name": "张伟", "specialty": "内科"}
@@ -164,8 +166,20 @@ class TestToolLoopFallback:
             "confirmation": "未知",
             "unrelated": False,
         }, ensure_ascii=False)
+        blank = json.dumps({
+            "patient_name": "未知",
+            "specialty": "未知",
+            "visit_type": "未知",
+            "channel": "未知",
+            "start_time": "未知",
+            "duration": "未知",
+            "doctor_name": "未知",
+            "preference": "未知",
+            "confirmation": "未知",
+            "unrelated": False,
+        }, ensure_ascii=False)
         agent = AppointmentAgent(
-            llm=FakeListChatModel(responses=["坏的", "坏的", "坏的", slot_json]),
+            llm=FakeListChatModel(responses=[blank, "坏的", "坏的", "坏的", slot_json]),
             session_id="tool-loop-fallback",
             timeout_seconds=1,
         )
@@ -202,6 +216,123 @@ class TestToolLoopFallback:
         assert "内科" in tokens
         assert searched == []
         assert policy_next_action(loop.last_observation) == "ask_user"
+
+
+class TestSlotPersistence:
+    """Slots from the user turn land in history before finish, and finish waits for them."""
+
+    UTTERANCE = "我是冒烟张三，想挂内科初诊，时间2026-11-20 15:00，门诊，不指定医生。"
+
+    @pytest.mark.asyncio
+    async def test_utterance_slots_are_in_history_before_finish(self):
+        parsed = json.dumps({
+            "patient_name": "冒烟张三",
+            "specialty": "内科",
+            "visit_type": "初诊",
+            "channel": "门诊",
+            "start_time": "2026-11-20 15:00",
+            "duration": "未知",
+            "doctor_name": "未知",
+            "preference": "未知",
+            "confirmation": "未知",
+            "unrelated": False,
+        }, ensure_ascii=False)
+        find = action("find_doctor", arguments={
+            "specialty": "内科",
+            "start_time": "2026-11-20 15:00",
+            "duration_minutes": 30,
+            "doctor_name": None,
+        })
+        agent = AppointmentAgent(
+            llm=FakeListChatModel(responses=[parsed, find]),
+            doctor_finder=StubFinder(),
+            session_id="slot-merge",
+            timeout_seconds=1,
+        )
+        captured = {}
+
+        async def on_finish(observation, history):
+            captured["patient_name"] = history.get("patient_name")
+            captured["visit_type"] = history.get("visit_type")
+            captured["channel"] = history.get("channel")
+            return "[REPLY][预约助手]预约成功"
+
+        agent.tool_loop.on_finish = on_finish
+        history = agent.appointment_history
+
+        await collect(agent.tool_loop.run(self.UTTERANCE, history))
+
+        assert captured["patient_name"] == "冒烟张三"
+        assert captured["visit_type"] == "初诊"
+        assert captured["channel"] == "门诊"
+        assert history["patient_name"] == "冒烟张三"
+
+    @pytest.mark.asyncio
+    async def test_finish_asks_for_name_instead_of_booking(self):
+        called = []
+
+        async def on_finish(observation, history):
+            called.append(history.get("patient_name"))
+            return "[REPLY][预约助手]不该落库"
+
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action("find_doctor", arguments=VALID_ARGS)]),
+            StubFinder(),
+            on_finish=on_finish,
+        )
+
+        tokens = "".join(await collect(loop.run("想挂内科", {})))
+
+        assert called == []
+        assert "姓名" in tokens
+        assert "不该落库" not in tokens
+
+    @pytest.mark.asyncio
+    async def test_symptoms_only_reply_asks_for_specialty_and_does_not_book(self):
+        called = []
+
+        async def on_finish(observation, history):
+            called.append(True)
+            return "[REPLY][预约助手]不该落库"
+
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[action("ask_user", message="")]),
+            StubFinder(),
+            on_finish=on_finish,
+        )
+
+        tokens = "".join(await collect(loop.run("我咳嗽两天，有点头疼，想预约就诊。", {})))
+
+        assert "科室" in tokens
+        assert called == []
+        assert "不该落库" not in tokens
+
+    @pytest.mark.asyncio
+    async def test_model_slot_fields_fill_history_before_finish(self):
+        captured = {}
+
+        async def on_finish(observation, history):
+            captured["patient_name"] = history.get("patient_name")
+            captured["visit_type"] = history.get("visit_type")
+            return "[REPLY][预约助手]预约成功"
+
+        payload = action(
+            "find_doctor",
+            arguments=VALID_ARGS,
+            slots={"patient_name": "冒烟张三", "visit_type": "初诊", "channel": "门诊"},
+        )
+        loop = BookingToolLoop(
+            FakeListChatModel(responses=[payload]),
+            StubFinder(),
+            on_finish=on_finish,
+        )
+        history = {}
+
+        await collect(loop.run("我是冒烟张三，想挂内科初诊", history))
+
+        assert captured["patient_name"] == "冒烟张三"
+        assert captured["visit_type"] == "初诊"
+        assert history["patient_name"] == "冒烟张三"
 
 
 class TestTurnBudget:

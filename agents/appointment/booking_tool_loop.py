@@ -11,6 +11,7 @@ import logging
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, Union
 
 from services.appointment_service import DEPARTMENT_CHOICES
+from agents.appointment.appointment_processor import AppointmentProcessor
 from agents.appointment.doctor_tools import (
     FIND_DOCTOR_SCHEMA,
     TOOL_ARGUMENT_KEYS,
@@ -26,6 +27,60 @@ MAX_INVALID_ATTEMPTS = 3
 SCHEMA_KEYS = tuple(FIND_DOCTOR_SCHEMA["function"]["parameters"]["properties"])
 
 FinishCallback = Callable[[Dict[str, Any], Dict[str, Any]], Union[str, Awaitable[str]]]
+SlotReader = Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
+
+BOOKING_SLOT_FIELDS = (
+    "patient_name",
+    "specialty",
+    "visit_type",
+    "channel",
+    "start_time",
+    "duration",
+    "doctor_name",
+)
+
+
+def _is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip()
+    return text == "" or text == "未知" or text.lower() == "null"
+
+
+def merge_booking_slots(history: Dict[str, Any], data: Any) -> None:
+    """Copy known booking slots into history. Blank and「未知」do not erase a previous value."""
+    if not isinstance(data, dict):
+        return
+    for key in BOOKING_SLOT_FIELDS:
+        value = data.get(key)
+        if _is_blank(value):
+            continue
+        text = str(value).strip()
+        if key == "visit_type":
+            text = AppointmentProcessor.normalize_visit_type(text)
+        elif key == "channel":
+            text = AppointmentProcessor.normalize_channel(text)
+        if _is_blank(text):
+            continue
+        history[key] = text
+
+
+def question_blocking_finish(history: Dict[str, Any]) -> Optional[str]:
+    """finish 需要姓名和就诊类型。缺了就追问，不落库。"""
+    if _is_blank(history.get("patient_name")):
+        return "请问患者的姓名是？"
+    if _is_blank(history.get("visit_type")):
+        return "请问是初诊、复诊还是咨询？"
+    return None
+
+
+def ensure_specialty_question(message: Any, history: Dict[str, Any]) -> str:
+    """只说症状时，追问必须出现「科室」，即使模型的 ask_user 文案是空的。"""
+    text = str(message or "").strip()
+    if _is_blank(history.get("specialty")) and "科室" not in text:
+        question = "请问要挂哪个科室？比如内科、外科或儿科。"
+        text = f"{text} {question}".strip() if text else question
+    return text
 
 
 class ToolLoopFallback(Exception):
@@ -121,12 +176,14 @@ class BookingToolLoop:
 
     def __init__(self, llm, finder, timeout_seconds: float = 20.0,
                  on_finish: Optional[FinishCallback] = None,
-                 slot_search: Optional[Callable[..., list]] = None):
+                 slot_search: Optional[Callable[..., list]] = None,
+                 slot_reader: Optional[SlotReader] = None):
         self.llm = llm
         self.finder = finder
         self.timeout_seconds = timeout_seconds
         self.on_finish = on_finish
         self.slot_search = slot_search
+        self.slot_reader = slot_reader
         self.last_observation: Optional[Dict[str, Any]] = None
 
     async def run(self, user_input: str, history: Dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -134,6 +191,8 @@ class BookingToolLoop:
             async for token in self._resolve_slot_choice(user_input, history):
                 yield token
             return
+
+        await self._absorb_user_slots(user_input, history)
 
         invalid_streak = 0
         while invalid_streak < MAX_INVALID_ATTEMPTS:
@@ -149,12 +208,13 @@ class BookingToolLoop:
                 continue
 
             name = action["action"]
+            merge_booking_slots(history, action.get("slots"))
             if name == "ask_user":
-                yield reply_for_ask(action.get("message"))
+                yield reply_for_ask(ensure_specialty_question(action.get("message"), history))
                 return
 
             if name == "finish":
-                yield await self._finish(history, self.last_observation)
+                yield await self._finish_or_ask(history, self.last_observation)
                 return
 
             arguments = action.get("arguments")
@@ -217,10 +277,10 @@ class BookingToolLoop:
             yield reply_for_slots(options)
             return
         if next_action == "finish" or (next_action == "search_alternative_slots" and not allow_replan and observation.get("status") == "available"):
-            yield await self._finish(history, observation)
+            yield await self._finish_or_ask(history, observation)
             return
         if next_action == "finish":
-            yield await self._finish(history, observation)
+            yield await self._finish_or_ask(history, observation)
             return
         yield reply_for_observation(observation)
 
@@ -228,6 +288,32 @@ class BookingToolLoop:
         if self.slot_search is None:
             return []
         return list(self.slot_search(history) or [])[:2]
+
+    async def _absorb_user_slots(self, user_input: str, history: Dict[str, Any]) -> None:
+        """Read this turn's slots before the model picks find/finish.
+
+        InputParser is the shared extractor. A failure here does not consume
+        an invalid-action attempt; timeout still falls back to run_stream.
+        """
+        if self.slot_reader is None:
+            return
+        try:
+            data = await asyncio.wait_for(
+                self.slot_reader(user_input, history),
+                timeout=self.timeout_seconds,
+            )
+        except (asyncio.TimeoutError, TimeoutError) as exc:
+            raise ToolLoopTimeout("槽位抽取超时") from exc
+        except Exception:
+            logger.exception("槽位抽取失败，继续工具环")
+            return
+        merge_booking_slots(history, data)
+
+    async def _finish_or_ask(self, history: Dict[str, Any], observation: Optional[Dict[str, Any]]) -> str:
+        question = question_blocking_finish(history)
+        if question:
+            return reply_for_ask(question)
+        return await self._finish(history, observation)
 
     async def _finish(self, history: Dict[str, Any], observation: Optional[Dict[str, Any]]) -> str:
         observation = observation or {}
@@ -246,6 +332,12 @@ class BookingToolLoop:
             '动作只能是 ask_user、find_doctor、finish。'
             "find_doctor 的 arguments 必须包含 "
             f"{list(SCHEMA_KEYS)}。"
+            "如果这句里已经说清姓名、就诊类型或渠道，请同时给出 slots："
+            "patient_name、visit_type（初诊/复诊/咨询）、channel（门诊/互联网医院）、"
+            "specialty、start_time。没说的字段不要猜，不要把症状写成科室。"
+            "只说症状、没有科室时，用 find_doctor 且 specialty 为 null，"
+            "或 ask_user 且 message 含「科室」。"
+            "patient_name 或 visit_type 仍未知时不要 finish。"
             f"已知槽位：{json.dumps(history, ensure_ascii=False, default=str)}。"
             f"患者说：{user_input}"
         )

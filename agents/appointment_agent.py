@@ -57,6 +57,7 @@ class AppointmentAgent:
             timeout_seconds=timeout_seconds,
             on_finish=self._finish_from_tool,
             slot_search=self._search_alternative_slots,
+            slot_reader=self._read_booking_slots,
         )
 
         # 会话管理
@@ -102,6 +103,26 @@ class AppointmentAgent:
     def set_shared_state(self, shared_state):
         """设置共享状态"""
         self.state = shared_state
+
+    async def _read_booking_slots(self, user_input: str, history: dict) -> dict:
+        """用和回退流程同一套 InputParser 抽出本轮槽位，不写入聊天记录。"""
+        import json
+
+        known = {
+            key: history.get(key)
+            for key in (
+                "patient_name", "specialty", "visit_type", "channel",
+                "start_time", "duration", "doctor_name",
+            )
+        }
+        message = await self.input_parser.chain.ainvoke({
+            "history": json.dumps(known, ensure_ascii=False, default=str),
+            "user_input": user_input,
+        })
+        content = getattr(message, "content", message)
+        if isinstance(content, list):
+            content = "".join(str(part) for part in content)
+        return self.input_parser.parse_data(str(content))
 
     def _search_alternative_slots(self, history):
         from .appointment.alternative_slots import slots_for_history
