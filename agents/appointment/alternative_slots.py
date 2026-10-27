@@ -91,8 +91,9 @@ def search_lower_bound(history: Optional[Dict], now: Optional[datetime] = None) 
 
 
 def slots_for_history(finder, history: Dict, now: Optional[datetime] = None) -> List[dict]:
-    """用轮次默认时长，在同方向或指定医生有空的整点里找改期选项。"""
+    """用轮次默认时长找改期选项。点名医生时只给这位医生有空的整点。"""
     from agents.appointment.appointment_processor import DEFAULT_DURATION_MINUTES, AppointmentProcessor
+    from agents.appointment.message_builder import slot_is_blank
 
     duration = AppointmentProcessor.resolve_duration(history.get("visit_type"), history.get("duration"))
     if not duration:
@@ -102,10 +103,11 @@ def slots_for_history(finder, history: Dict, now: Optional[datetime] = None) -> 
 
     def is_available(start: datetime, end: datetime) -> bool:
         name = history.get("doctor_name")
-        if name and name != "未知":
+        if not slot_is_blank(name):
             person = service.get_doctor_by_name(name)
-            if person and service.is_doctor_available(person["id"], start, end):
-                return True
+            if not person:
+                return False
+            return bool(service.is_doctor_available(person["id"], start, end))
         department = None
         if hasattr(service, "match_department"):
             department = service.match_department(history.get("specialty"))

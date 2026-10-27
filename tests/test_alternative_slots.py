@@ -191,6 +191,53 @@ class TestSlotScan:
             "2026-10-27 17:00",
         ]
 
+    def test_named_doctor_slots_skip_hours_only_a_colleague_is_free(self, temp_db_path):
+        from agents.appointment.doctor_finder import DoctorFinder
+        from services.appointment_service import AppointmentService
+        from services.doctor_service import DoctorService
+
+        doctor_service = DoctorService(db_path=temp_db_path)
+        assert doctor_service.initialize_default_doctors()
+        appointment_service = AppointmentService(db_path=temp_db_path)
+        by_name = {item["name"]: item for item in doctor_service.get_all_doctors()}
+        chen = by_name["陈安"]
+        info = {
+            "patient_name": "占档",
+            "specialty": "内科",
+            "visit_type": "初诊",
+            "channel": "门诊",
+        }
+        for hour in (15, 16):
+            start = datetime(2026, 11, 20, hour, 0)
+            assert appointment_service.save_appointment(
+                chen["id"], start, start + timedelta(minutes=30), info, "seed-chen"
+            )
+
+        sixteen = datetime(2026, 11, 20, 16, 0)
+        sixteen_end = sixteen + timedelta(minutes=30)
+        colleagues = appointment_service.get_available_doctors(sixteen, sixteen_end, "内科")
+        assert any(item["name"] == "林夏" for item in colleagues)
+        assert not appointment_service.is_doctor_available(chen["id"], sixteen, sixteen_end)
+
+        options = slots_for_history(
+            DoctorFinder(appointment_service=appointment_service),
+            {
+                "visit_type": "初诊",
+                "specialty": "内科",
+                "doctor_name": "陈安",
+                "start_time": "2026-11-20 15:00",
+            },
+            now=datetime(2026, 10, 27, 9, 0),
+        )
+        times = [item["start_time"] for item in options]
+
+        assert "2026-11-20 16:00" not in times
+        assert times == ["2026-11-20 17:00", "2026-11-23 09:00"]
+        for item in options:
+            start = datetime.strptime(item["start_time"], "%Y-%m-%d %H:%M")
+            end = start + timedelta(minutes=item["duration_minutes"])
+            assert appointment_service.is_doctor_available(chen["id"], start, end)
+
 
 class TestSlotCopy:
     def test_should_name_the_requested_date_and_omit_the_busy_slot(self):
