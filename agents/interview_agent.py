@@ -53,6 +53,7 @@ class InterviewAgent:
             self.interviewer_finder,
             timeout_seconds=timeout_seconds,
             on_finish=self._finish_from_tool,
+            slot_search=self._search_alternative_slots,
         )
 
         # 会话管理
@@ -98,6 +99,10 @@ class InterviewAgent:
     def set_shared_state(self, shared_state):
         """设置共享状态"""
         self.state = shared_state
+
+    def _search_alternative_slots(self, history):
+        from .interview.alternative_slots import slots_for_history
+        return slots_for_history(self.interviewer_finder, history)
 
     async def _finish_from_tool(self, observation, history) -> str:
         """策略选定 finish 后，沿用现有落库路径。"""
